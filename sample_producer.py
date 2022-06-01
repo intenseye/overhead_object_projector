@@ -6,7 +6,7 @@ import cv2
 import random
 import matplotlib.pyplot as plt
 
-DEMO_MODE = True
+DEMO_MODE = False
 CAM_FOV_HOR = 60  # in degrees
 CAM_PIXEL_WIDTH = 1280  # number of horizontal pixel
 CAM_PIXEL_HEIGHT = 720  # number of vertical pixel
@@ -21,15 +21,15 @@ OBJ_LENGTH = 1.0
 LINE_THICKNESS = 1
 DRAW_ENABLED = True
 PAUSE_FIG_TIME = 0.01
-ROTATE_ANGLE = 135
-ROLL_ENABLED = True
+ROTATE_ANGLE = 0
+ROLL_ENABLED = False
 ROLL_ANGLE = 10  # in degrees (clockwise direction)
 RADIAL_DIST_ENABLED = True
 K_1 = -0.05
 K_2 = 0.0
 RANDOM_DEVIATION_ENABLED = False
 DEVIATON_SIGMA = 2
-X_SEARCH_MIN = 15.0
+X_SEARCH_MIN = 20.0
 X_SEARCH_MAX = 50.0
 X_SEARCH_COUNT = 50
 Y_HOR_SEARCH_MIN = -40.0
@@ -175,9 +175,6 @@ class PointEstimator:
                 theta = math.degrees(theta_in_radians)
                 self.top_points[j][k] = self.cy - (theta / self.IFOV)
 
-        self.bbox_bottom = np.max(self.bottom_points)  # bbox_bottom  (p_b^y in paper)
-        self.bbox_top = np.min(self.top_points)  # bbox_top  (p_t^y in paper)
-
         self.proj_y = np.zeros((2, 2), dtype=float)
         for j in range(2):
             for k in range(2):
@@ -210,9 +207,6 @@ class PointEstimator:
             self.left_points[j] = self.cx - (theta / self.IFOV)
             self.proj_x[j][0] = self.cx - (theta / self.IFOV)
 
-        self.bbox_right = np.max(np.concatenate((self.right_points, self.left_points)))  # bbox_bottom  (p_b^y in paper)
-        self.bbox_left = np.min(np.concatenate((self.right_points, self.left_points)))  # bbox_top  (p_t^y in paper)
-
         c = (self.y_hor - self.z_hor + self.x * cotan(self.alpha_hor)) * math.sin(self.alpha_hor)
         denominator = (self.x / math.sin(self.alpha_hor)) - c * cotan(self.alpha_hor)
         gamma_prime_in_radians = math.atan2(c, denominator)
@@ -220,27 +214,33 @@ class PointEstimator:
         self.proj_mid_x = self.cx - (gamma_prime / self.IFOV)  #                                   (p_{proj}^{x] in paper)
 
     def get_bbox_proj_points(self):
-        bbox_tl = (self.bbox_left, self.bbox_top)
-        bbox_tr = (self.bbox_right, self.bbox_top)
-        bbox_br = (self.bbox_right, self.bbox_bottom)
-        bbox_bl = (self.bbox_left, self.bbox_bottom)
+
+        front_tl = (self.left_points[0], self.top_points[0][0])
+        front_tr = (self.right_points[0], self.top_points[0][1])
+        front_br = (self.right_points[0], self.bottom_points[0][1])
+        front_bl = (self.left_points[0], self.bottom_points[0][0])
+
+        back_tl = (self.left_points[1], self.top_points[1][0])
+        back_tr = (self.right_points[1], self.top_points[1][1])
+        back_br = (self.right_points[1], self.bottom_points[1][1])
+        back_bl = (self.left_points[1], self.bottom_points[1][0])
 
         proj_near_l = (self.proj_x[0][0], self.proj_y[0][0])
         proj_near_r = (self.proj_x[0][1], self.proj_y[0][1])
         proj_far_l = (self.proj_x[1][0], self.proj_y[1][0])
         proj_far_r = (self.proj_x[1][1], self.proj_y[1][1])
-
         proj_mid_point = (self.proj_mid_x, self.proj_mid_y)
 
         if ROLL_ENABLED:
-            point_tl_rotated = apply_roll(bbox_tl, self.cx, self.cy)
-            point_tr_rotated = apply_roll(bbox_tr, self.cx, self.cy)
-            point_br_rotated = apply_roll(bbox_br, self.cx, self.cy)
-            point_bl_rotated = apply_roll(bbox_bl, self.cx, self.cy)
-            bbox_tl = (min(point_tl_rotated[0], point_bl_rotated[0]), min(point_tl_rotated[1], point_tr_rotated[1]))
-            bbox_tr = (max(point_tr_rotated[0], point_br_rotated[0]), min(point_tl_rotated[1], point_tr_rotated[1]))
-            bbox_br = (max(point_tr_rotated[0], point_br_rotated[0]), max(point_bl_rotated[1], point_br_rotated[1]))
-            bbox_bl = (min(point_tl_rotated[0], point_bl_rotated[0]), max(point_bl_rotated[1], point_br_rotated[1]))
+            front_tl = apply_roll(front_tl, self.cx, self.cy)
+            front_tr = apply_roll(front_tr, self.cx, self.cy)
+            front_br = apply_roll(front_br, self.cx, self.cy)
+            front_bl = apply_roll(front_bl, self.cx, self.cy)
+
+            back_tl = apply_roll(back_tl, self.cx, self.cy)
+            back_tr = apply_roll(back_tr, self.cx, self.cy)
+            back_br = apply_roll(back_br, self.cx, self.cy)
+            back_bl = apply_roll(back_bl, self.cx, self.cy)
 
             proj_far_l = apply_roll(proj_far_l, self.cx, self.cy)
             proj_far_r = apply_roll(proj_far_r, self.cx, self.cy)
@@ -249,20 +249,31 @@ class PointEstimator:
             proj_mid_point = apply_roll(proj_mid_point, self.cx, self.cy)
 
         if RADIAL_DIST_ENABLED:
-            point_tl_distorted = apply_radial_dist(bbox_tl, self.cx, self.cy)
-            point_tr_distorted = apply_radial_dist(bbox_tr, self.cx, self.cy)
-            point_br_distorted = apply_radial_dist(bbox_br, self.cx, self.cy)
-            point_bl_distorted = apply_radial_dist(bbox_bl, self.cx, self.cy)
-            bbox_tl = [min(point_tl_distorted[0], point_bl_distorted[0]), min(point_tl_distorted[1], point_tr_distorted[1])]
-            bbox_tr = [max(point_tr_distorted[0], point_br_distorted[0]), min(point_tl_distorted[1], point_tr_distorted[1])]
-            bbox_br = [max(point_tr_distorted[0], point_br_distorted[0]), max(point_bl_distorted[1], point_br_distorted[1])]
-            bbox_bl = [min(point_tl_distorted[0], point_bl_distorted[0]), max(point_bl_distorted[1], point_br_distorted[1])]
+            front_tl = apply_radial_dist(front_tl, self.cx, self.cy)
+            front_tr = apply_radial_dist(front_tr, self.cx, self.cy)
+            front_br = apply_radial_dist(front_br, self.cx, self.cy)
+            front_bl = apply_radial_dist(front_bl, self.cx, self.cy)
+
+            back_tl = apply_radial_dist(back_tl, self.cx, self.cy)
+            back_tr = apply_radial_dist(back_tr, self.cx, self.cy)
+            back_br = apply_radial_dist(back_br, self.cx, self.cy)
+            back_bl = apply_radial_dist(back_bl, self.cx, self.cy)
 
             proj_far_l = apply_radial_dist(proj_far_l, self.cx, self.cy)
             proj_far_r = apply_radial_dist(proj_far_r, self.cx, self.cy)
             proj_near_r = apply_radial_dist(proj_near_r, self.cx, self.cy)
             proj_near_l = apply_radial_dist(proj_near_l, self.cx, self.cy)
             proj_mid_point = apply_radial_dist(proj_mid_point, self.cx, self.cy)
+
+        self.bbox_bottom = max(front_br[1], front_bl[1], back_br[1], back_bl[1])  # bbox_bottom  (p_b^y in paper)
+        self.bbox_top = min(front_tr[1], front_tl[1], back_tr[1], back_tl[1])  # bbox_top  (p_t^y in paper)
+        self.bbox_right = max(front_bl[0], back_bl[0], front_tl[0], back_tl[0], front_br[0], back_br[0], front_tr[0], back_tr[0])  # bbox_bottom  (p_b^y in paper)
+        self.bbox_left = min(front_bl[0], back_bl[0], front_tl[0], back_tl[0], front_br[0], back_br[0], front_tr[0], back_tr[0])  # bbox_top  (p_t^y in paper)
+
+        bbox_tl = (self.bbox_left, self.bbox_top)
+        bbox_tr = (self.bbox_right, self.bbox_top)
+        bbox_br = (self.bbox_right, self.bbox_bottom)
+        bbox_bl = (self.bbox_left, self.bbox_bottom)
 
         if RANDOM_DEVIATION_ENABLED:
             top_dev = random.gauss(0, DEVIATON_SIGMA)
@@ -279,46 +290,12 @@ class PointEstimator:
         proj_points = [proj_far_l, proj_far_r, proj_near_r, proj_near_l]
         proj_mid_point = [proj_mid_point]
 
-        return bbox_points, proj_points, proj_mid_point
+        front_facade = [front_tl, front_tr, front_br, front_bl]
+        back_facade = [back_tl, back_tr, back_br, back_bl]
+        top_facade = [front_tl, back_tl, back_tr, front_tr]
 
-    def get_facade_points(self):
-        front_tl = (self.left_points[0], self.top_points[0][0])
-        front_tr = (self.right_points[0], self.top_points[0][1])
-        front_br = (self.right_points[0], self.bottom_points[0][1])
-        front_bl = (self.left_points[0], self.bottom_points[0][0])
+        return bbox_points, proj_points, proj_mid_point, front_facade, back_facade, top_facade
 
-        back_tl = (self.left_points[1], self.top_points[1][0])
-        back_tr = (self.right_points[1], self.top_points[1][1])
-        back_br = (self.right_points[1], self.bottom_points[1][1])
-        back_bl = (self.left_points[1], self.bottom_points[1][0])
-
-        if ROLL_ENABLED:
-            front_tl = apply_roll(front_tl, self.cx, self.cy)
-            front_tr = apply_roll(front_tr, self.cx, self.cy)
-            front_br = apply_roll(front_br, self.cx, self.cy)
-            front_bl = apply_roll(front_bl, self.cx, self.cy)
-
-            back_tl = apply_roll(back_tl, self.cx, self.cy)
-            back_tr = apply_roll(back_tr, self.cx, self.cy)
-            back_br = apply_roll(back_br, self.cx, self.cy)
-            back_bl = apply_roll(back_bl, self.cx, self.cy)
-
-        if RADIAL_DIST_ENABLED:
-            front_tl = apply_radial_dist(front_tl, self.cx, self.cy)
-            front_tr = apply_radial_dist(front_tr, self.cx, self.cy)
-            front_br = apply_radial_dist(front_br, self.cx, self.cy)
-            front_bl = apply_radial_dist(front_bl, self.cx, self.cy)
-
-            back_tl = apply_radial_dist(back_tl, self.cx, self.cy)
-            back_tr = apply_radial_dist(back_tr, self.cx, self.cy)
-            back_br = apply_radial_dist(back_br, self.cx, self.cy)
-            back_bl = apply_radial_dist(back_bl, self.cx, self.cy)
-
-        front = [front_tl, front_tr, front_br, front_bl]
-        back = [back_tl, back_tr, back_br, back_bl]
-        top = [front_tl, back_tl, back_tr, front_tr]
-
-        return front, back, top
 
 inputs = []
 outputs = []
@@ -338,7 +315,7 @@ for x in np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARC
                 point_estimator.set_object_location(y_ver=y_ver, y_hor=y_hor, x=x)
             point_estimator.calc_vertical_point_loc()
             point_estimator.calc_horizontal_point_loc()
-            bbox, proj, proj_mid = point_estimator.get_bbox_proj_points()
+            bbox, proj, proj_mid, front, back, top = point_estimator.get_bbox_proj_points()
             mid_bottom_coord, width_height, proj_coord_offset = get_normalized_input_coord(bbox, proj_mid)
             if (0 <= (mid_bottom_coord[0] - width_height[0] / 2)) and (
                     (mid_bottom_coord[0] + width_height[0] / 2) < 1) and (
@@ -350,7 +327,6 @@ for x in np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARC
                     outputs.append(proj_coord_offset)
 
                 if DEMO_MODE or DRAW_ENABLED:
-                    front, back, top = point_estimator.get_facade_points()
                     image = np.zeros((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH, 3), dtype=np.uint8)
                     connect_and_draw_points(image, bbox, GREEN_COLOR)
                     connect_and_draw_points(image, proj, YELLOW_COLOR)
