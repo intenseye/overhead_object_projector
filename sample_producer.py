@@ -19,16 +19,17 @@ OBJ_HEIGHT = 2.5
 OBJ_WIDTH = 2.0
 OBJ_LENGTH = 1.0
 LINE_THICKNESS = 1
-DRAW_ENABLED = True
+DRAW_ENABLED = False
 PAUSE_FIG_TIME = 0.01
-ROTATE_ANGLE = 0
-ROLL_ENABLED = False
+ROLL_ENABLED = True
 ROLL_ANGLE = 10  # in degrees (clockwise direction)
 RADIAL_DIST_ENABLED = True
 K_1 = -0.05
 K_2 = 0.0
-RANDOM_DEVIATION_ENABLED = False
+RANDOM_DEVIATION_ENABLED = True
 DEVIATON_SIGMA = 2
+ROTATE_ANGLE_MIN = -10
+ROTATE_ANGLE_MAX = 10
 X_SEARCH_MIN = 20.0
 X_SEARCH_MAX = 50.0
 X_SEARCH_COUNT = 50
@@ -38,7 +39,7 @@ Y_VER_SEARCH_MIN = 1.25
 X_VER_SEARCH_MAX = 10.0
 SEARCH_DISTANCE_STEP = 0.5
 EXPORT_TO_TXT = True
-PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs.txt'
+PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev.txt'
 GREEN_COLOR = (0, 255, 0)
 YELLOW_COLOR = (255, 255, 0)
 RED_COLOR = (255, 0, 0)
@@ -106,23 +107,6 @@ class PointEstimator:
         self.w = OBJ_WIDTH  # obj_width in meters      (w in paper)
         self.t = OBJ_LENGTH  # obj_length in meters    (t in paper)
 
-        self.w_prime = self.w * math.cos(math.radians(ROTATE_ANGLE)) + self.t * math.sin(math.radians(ROTATE_ANGLE))
-        self.w_double_prime = self.w * math.cos(math.radians(ROTATE_ANGLE)) - self.t * math.sin(math.radians(ROTATE_ANGLE))
-        self.t_prime = self.t * math.cos(math.radians(ROTATE_ANGLE)) + self.w * math.sin(math.radians(ROTATE_ANGLE))
-        self.t_double_prime = self.t * math.cos(math.radians(ROTATE_ANGLE)) - self.w * math.sin(math.radians(ROTATE_ANGLE))
-
-        self.W = np.zeros((2, 2), dtype=float)
-        self.W[0][0] = -1 * self.w_prime
-        self.W[0][1] = -1 * self.w_double_prime
-        self.W[1][0] = self.w_double_prime
-        self.W[1][1] = self.w_prime
-
-        self.T = np.zeros((2, 2), dtype=float)
-        self.T[0][0] = self.t_double_prime
-        self.T[0][1] = -1 * self.t_prime
-        self.T[1][0] = self.t_prime
-        self.T[1][1] = -1 * self.t_double_prime
-
         self.cx = CAM_PIXEL_WIDTH / 2  # horizontal center pixel loc.                                                               (p_c^x in paper)
         self.cy = CAM_PIXEL_HEIGHT / 2  # vertical center pixel loc.                                                                (p_c^y in paper)
 
@@ -133,6 +117,15 @@ class PointEstimator:
         self.y_ver = 0  # obj center point altitude in meters                                                                       (y in paper)
         self.y_hor = 0  # obj center point w.r.t the reference point in meters                                                      (y' in paper)
         self.x = 0  # cam_to_obj_nearest_point_hor_dist in meters                                                                   (x in paper)
+        self.rotate_angle = 0
+
+        self.W = np.zeros((2, 2), dtype=float)
+        self.T = np.zeros((2, 2), dtype=float)
+
+        self.w_prime = 0
+        self.w_double_prime = 0
+        self.t_prime = 0
+        self.t_double_prime = 0
 
         self.distance_along_axis = np.ones(CAM_PIXEL_HEIGHT, dtype=float) * sys.float_info.max  #                                   (d_a^j in paper)
         self.distance_perp_axis = np.ones((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH), dtype=float) * sys.float_info.max  #                 (d_p^{j,i} in paper)
@@ -149,10 +142,26 @@ class PointEstimator:
                     zeta_angle = (i - self.cx + HALF_PIXEL_SIZE) * self.IFOV  #                                                     (zeta_i in paper)
                     self.distance_perp_axis[j, i] = distance_to_center * math.tan(math.radians(zeta_angle))
 
-    def set_object_location(self, y_ver, y_hor, x):
+    def set_object_location(self, y_ver, y_hor, x, rotate_angle):
         self.y_ver = y_ver
         self.y_hor = y_hor
         self.x = x
+        self.rotate_angle = rotate_angle
+
+        self.w_prime = self.w * math.cos(math.radians(self.rotate_angle)) + self.t * math.sin(math.radians(self.rotate_angle))
+        self.w_double_prime = self.w * math.cos(math.radians(self.rotate_angle)) - self.t * math.sin(math.radians(self.rotate_angle))
+        self.t_prime = self.t * math.cos(math.radians(self.rotate_angle)) + self.w * math.sin(math.radians(self.rotate_angle))
+        self.t_double_prime = self.t * math.cos(math.radians(self.rotate_angle)) - self.w * math.sin(math.radians(self.rotate_angle))
+
+        self.W[0][0] = -1 * self.w_prime
+        self.W[0][1] = -1 * self.w_double_prime
+        self.W[1][0] = self.w_double_prime
+        self.W[1][1] = self.w_prime
+
+        self.T[0][0] = self.t_double_prime
+        self.T[0][1] = -1 * self.t_prime
+        self.T[1][0] = self.t_prime
+        self.T[1][1] = -1 * self.t_double_prime
 
     def calc_vertical_point_loc(self):
         self.bottom_points = np.zeros((2, 2), dtype=float)
@@ -265,15 +274,15 @@ class PointEstimator:
             proj_near_l = apply_radial_dist(proj_near_l, self.cx, self.cy)
             proj_mid_point = apply_radial_dist(proj_mid_point, self.cx, self.cy)
 
-        self.bbox_bottom = max(front_br[1], front_bl[1], back_br[1], back_bl[1])  # bbox_bottom  (p_b^y in paper)
-        self.bbox_top = min(front_tr[1], front_tl[1], back_tr[1], back_tl[1])  # bbox_top  (p_t^y in paper)
-        self.bbox_right = max(front_bl[0], back_bl[0], front_tl[0], back_tl[0], front_br[0], back_br[0], front_tr[0], back_tr[0])  # bbox_bottom  (p_b^y in paper)
-        self.bbox_left = min(front_bl[0], back_bl[0], front_tl[0], back_tl[0], front_br[0], back_br[0], front_tr[0], back_tr[0])  # bbox_top  (p_t^y in paper)
+        bbox_bottom = max(front_br[1], front_bl[1], back_br[1], back_bl[1])  # bbox_bottom  (p_b^y in paper)
+        bbox_top = min(front_tr[1], front_tl[1], back_tr[1], back_tl[1])  # bbox_top  (p_t^y in paper)
+        bbox_right = max(front_bl[0], back_bl[0], front_tl[0], back_tl[0], front_br[0], back_br[0], front_tr[0], back_tr[0])  # bbox_bottom  (p_b^y in paper)
+        bbox_left = min(front_bl[0], back_bl[0], front_tl[0], back_tl[0], front_br[0], back_br[0], front_tr[0], back_tr[0])  # bbox_top  (p_t^y in paper)
 
-        bbox_tl = (self.bbox_left, self.bbox_top)
-        bbox_tr = (self.bbox_right, self.bbox_top)
-        bbox_br = (self.bbox_right, self.bbox_bottom)
-        bbox_bl = (self.bbox_left, self.bbox_bottom)
+        bbox_tl = (bbox_left, bbox_top)
+        bbox_tr = (bbox_right, bbox_top)
+        bbox_br = (bbox_right, bbox_bottom)
+        bbox_bl = (bbox_left, bbox_bottom)
 
         if RANDOM_DEVIATION_ENABLED:
             top_dev = random.gauss(0, DEVIATON_SIGMA)
@@ -307,12 +316,14 @@ if DEMO_MODE:
 for x in np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARCH_COUNT):
     for y_hor in np.arange(Y_HOR_SEARCH_MIN, Y_HOR_SEARCH_MAX, SEARCH_DISTANCE_STEP):
         for y_ver in np.arange(Y_VER_SEARCH_MIN, X_VER_SEARCH_MAX, SEARCH_DISTANCE_STEP):
+            rotate_angle = random.uniform(ROTATE_ANGLE_MIN, ROTATE_ANGLE_MAX)
             if DEMO_MODE:
                 point_estimator.set_object_location(y_ver=random.uniform(Y_VER_SEARCH_MIN, X_VER_SEARCH_MAX),
                                                     y_hor=random.uniform(Y_HOR_SEARCH_MIN, Y_HOR_SEARCH_MAX),
-                                                    x=random.uniform(X_SEARCH_MIN, X_SEARCH_MAX))
+                                                    x=random.uniform(X_SEARCH_MIN, X_SEARCH_MAX),
+                                                    rotate_angle=rotate_angle)
             else:
-                point_estimator.set_object_location(y_ver=y_ver, y_hor=y_hor, x=x)
+                point_estimator.set_object_location(y_ver=y_ver, y_hor=y_hor, x=x, rotate_angle=rotate_angle)
             point_estimator.calc_vertical_point_loc()
             point_estimator.calc_horizontal_point_loc()
             bbox, proj, proj_mid, front, back, top = point_estimator.get_bbox_proj_points()
