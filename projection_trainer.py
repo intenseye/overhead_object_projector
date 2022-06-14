@@ -1,7 +1,6 @@
 import os.path
 import random
 import math
-import glob
 import json
 import numpy as np
 from datetime import datetime
@@ -15,17 +14,18 @@ from tqdm import tqdm
 import wandb
 from temp_params import *
 from argparse import ArgumentParser
+from models import RegressionModel
 
 
-DEVICE = 'cuda:0'
+DEVICE = "cuda:0"  # 'cuda:0' or 'cpu'
+LOGGING_TOOL = 'wandb'  # 'wandb' or 'tensorboard'
 NUM_WORKERS = 0
-THRESHOLD_FOR_HIT = 2 / 720
+PIXEL_THRESHOLD_FOR_HIT = 5
 FIXED_SEED_NUM = 35
-VAL_COUNT_IN_EPOCH = 2
+VAL_COUNT_IN_EPOCH = 4
 LOSS_DECREASE_COUNT = 4
 LOSS_DECREASE_GAMMA = 0.1
 LOSS_PATIENCE = 2
-CONSTANT_STD = 0.01
 MAIN_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/crane_simulation/'
 
 
@@ -44,67 +44,25 @@ def str2bool(bool_argument):
         raise ValueError
 
 
-def increment_dir(folder, comment=""):
-    n = 0
-    d = sorted(glob.glob(folder + "*"))
-    if len(d):
-        n = (max([int(x[len(folder): x[len(folder):].find("_") + len(folder) if "_" in x else None]) for x in d]) + 1)
-    return folder + str(n) + ("_" + comment if comment else "")
-
-
-def init_with_normal(modules):
-    for m in modules:
-        if isinstance(m, nn.Linear):
-            nn.init.normal_(m.weight.data, mean=0.0, std=CONSTANT_STD)
-
-
 def read_input_txt(input_txt_path):
     with open(input_txt_path, 'r') as f:
         input_list = []
         output_list = []
+        image_size = None
         for rows_id, rows in enumerate(raw.strip().split() for raw in f):
             if rows_id > 0:
                 input_list.append(rows[:4])
-                output_list.append(rows[4:])
-    return np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32)
+                output_list.append(rows[4:6])
+            if rows_id == 1:
+                image_size = np.array(rows[6:]).astype(np.float32)
+
+    return np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32), image_size
 
 
-class RegressionModel(nn.Module):
-    def __init__(self, init_w_normal=False):
-        super(RegressionModel, self).__init__()
-        self.linear1 = nn.Linear(4, 16)
-        self.relu1 = nn.ReLU()
-        self.linear2 = nn.Linear(16, 64)
-        self.relu2 = nn.ReLU()
-        self.linear3 = nn.Linear(64, 128)
-        self.relu3 = nn.ReLU()
-        self.linear4 = nn.Linear(128, 64)
-        self.relu4 = nn.ReLU()
-        self.linear5 = nn.Linear(64, 16)
-        self.relu5 = nn.ReLU()
-        self.linear6 = nn.Linear(16, 1)
-
-        if init_w_normal:
-            self.init_weights()
-
-    def forward(self, x):
-
-        x = self.linear1(x)
-        x = self.relu1(x)
-        x = self.linear2(x)
-        x = self.relu2(x)
-        x = self.linear3(x)
-        x = self.relu3(x)
-        x = self.linear4(x)
-        x = self.relu4(x)
-        x = self.linear5(x)
-        x = self.relu5(x)
-        x = self.linear6(x)
-
-        return x
-
-    def init_weights(self):
-        init_with_normal(self.modules())
+def normalize_points(inputs, targets, image_size):
+    inputs_norm = np.array(inputs / np.append(image_size, image_size)).astype(np.float32)
+    targets_norm = np.array(targets / image_size).astype(np.float32)
+    return inputs_norm, targets_norm
 
 
 class Criterion_mse_loss(nn.Module):
@@ -117,22 +75,25 @@ class Criterion_mse_loss(nn.Module):
         return loss
 
 
-class Train:
-    def __init__(self, driver, input_txt_path):
+class ProjectionTrainer:
+    def __init__(self, driver, input_txt_path, projection_axis):
         print('Overhead object projection training is started.')
+        self.projection_axis = projection_axis
+        self.driver = driver
         self.batch_size = int(param_sweep['batch_size'])
         self.loss_function = param_sweep['loss_function_reg']
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
         print('Model and log time stamp folder: ' + str(time_stamp))
-        self.device = DEVICE
-        self.logging_tool = 'wandb'
+        self.device = torch.device(DEVICE)
+        self.logging_tool = LOGGING_TOOL
         self.num_workers = NUM_WORKERS
-        self.model_output_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'models', driver, time_stamp)
-        self.log_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'logs', driver, time_stamp)
+        self.model_output_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'models', self.driver, time_stamp)
+        self.log_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'logs', self.driver, time_stamp)
 
         self.tuning_method = param_sweep['tuning_method']
         self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])
         self.validation_ratio = float(param_sweep['validation_ratio'])
+        self.test_ratio = float(param_sweep['test_ratio'])
 
         self.zero_mean_enabled = str2bool(param_sweep['zero_mean_enabled'])
         self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])
@@ -155,8 +116,8 @@ class Train:
             torch.manual_seed(FIXED_SEED_NUM)
             torch.cuda.manual_seed(FIXED_SEED_NUM)
             torch.cuda.manual_seed_all(FIXED_SEED_NUM)
-            torch.backends.cudnn.deterministic = False
-            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
         if not os.path.exists(self.model_output_folder_path):
             os.makedirs(self.model_output_folder_path)
             with open(os.path.join(self.model_output_folder_path, 'params.json'), 'w') as convert_file:
@@ -187,58 +148,83 @@ class Train:
 
         optimizer = AdamW(model.parameters(), lr=self.init_learning_rate, betas=self.betas, eps=self.eps_adam, weight_decay=self.weight_decay)
         if self.logging_tool == 'tensorboard':
-            writer = SummaryWriter(
-                log_dir=increment_dir(
-                    os.path.join(self.log_folder_path, 'exp'),
-                    f'_lr={self.init_learning_rate}'
-                    f'_sch_type={self.scheduler_type}'
-                    f'_batch_size={self.batch_size}'
-                    f'_loss_func={self.loss_function}',
-                )
-            )
+            writer = SummaryWriter(log_dir=self.log_folder_path)
             self.init_model_optimizer_logger(model, optimizer, writer=writer)
 
         elif self.logging_tool == 'wandb':
             self.init_model_optimizer_logger(model, optimizer)
-            self.initialize_wandb(time_stamp, driver)
+            self.initialize_wandb(time_stamp)
+
+        if projection_axis == 'x':
+            related_cam_dim = self.image_size[0]
+        else:
+            related_cam_dim = self.image_size[1]
+        self.normalized_hit_thr = PIXEL_THRESHOLD_FOR_HIT / related_cam_dim
+
+        self.best_model_path = None
 
     def dataset_splitter(self, dataset):
 
         input_size = len(dataset)
         val_input_size = int(input_size * self.validation_ratio)
-        train_input_size = input_size - val_input_size
+        test_input_size = int(input_size * self.test_ratio)
+        train_input_size = input_size - (val_input_size + test_input_size)
 
         random_indices = random.sample(range(input_size), input_size)
         val_indices = random_indices[0:val_input_size]
+        test_indices = random_indices[val_input_size:test_input_size + val_input_size]
         train_indices = random_indices[-train_input_size:]
 
         val_ds = Subset(dataset, val_indices)
+        test_ds = Subset(dataset, test_indices)
         train_ds = Subset(dataset, train_indices)
-        return train_ds, val_ds
+        return train_ds, val_ds, test_ds
 
     def initialize_dataloaders(self, input_txt_path):
-        inputs, targets = read_input_txt(input_txt_path)
-        inputs = torch.from_numpy(inputs)
-        targets = torch.from_numpy(targets[:, 1])
-        self.train_ds = TensorDataset(inputs, targets)
+        inputs, targets, self.image_size = read_input_txt(input_txt_path)
+        inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
+        inputs_norm = torch.from_numpy(inputs_norm)
+        if self.projection_axis == 'x':
+            targets_norm = torch.from_numpy(targets_norm[:, 0])
+        else:
+            targets_norm = torch.from_numpy(targets_norm[:, 1])
+        self.train_ds = TensorDataset(inputs_norm, targets_norm)
         self.generator = torch.Generator()
         if self.fixed_partition_seed:
             self.generator.manual_seed(FIXED_SEED_NUM)
 
         self.validation_enabled = False
         self.val_ds = None
-        if self.validation_ratio > 0:
-            self.train_ds, self.val_ds = self.dataset_splitter(self.train_ds)
+        self.test_ds = None
+        if (self.validation_ratio + self.test_ratio) > 0:
+            self.train_ds, self.val_ds, self.test_ds = self.dataset_splitter(self.train_ds)
             if len(self.val_ds) > 0:
                 self.validation_enabled = True
+            if len(self.test_ds) > 0:
+                self.test_enabled = True
 
         if self.validation_enabled:
             print('Validation operations are enabled with %' + str(self.validation_ratio * 100) + ' of data.')
         else:
             print('Validation operations are disabled.')
 
+        if self.test_enabled:
+            print('Test operations are enabled with %' + str(self.test_ratio * 100) + ' of data.')
+        else:
+            print('Test operations are disabled.')
+
         self.val_loader = DataLoader(
             self.val_ds,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            worker_init_fn=seed_worker,
+            generator=self.generator,
+        )
+
+        self.test_loader = DataLoader(
+            self.test_ds,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
@@ -257,12 +243,13 @@ class Train:
             generator=self.generator,
         )
 
-    def initialize_wandb(self, folder_name, driver):
+    def initialize_wandb(self, folder_name):
         config_dict = param_sweep
         wandb.init(
             project='overhead_object_projection',
             name=folder_name,
-            job_type=driver,
+            group=self.projection_axis,
+            job_type=self.driver,
             dir=self.log_folder_path,
         )
 
@@ -337,9 +324,11 @@ class Train:
     ):
         if is_best:
             filename = 'best_model.pth'
+            self.best_model_path = os.path.join(self.model_output_folder_path, filename)
         else:
             filename = '-{0:08d}.pth'.format(self.iter_count)
 
+        checkpoint_model_path = os.path.join(self.model_output_folder_path, filename)
         torch.save(
             {
                 'model_state_dict': model_state_dict,
@@ -349,7 +338,7 @@ class Train:
                 'accuracy': accuracy,
                 'loss': loss,
             },
-            os.path.join(self.model_output_folder_path, filename),
+            checkpoint_model_path,
         )
         if is_best:
             print(f'\nModel and optimizer parameters for the best performed iteration are saved in the {filename}.\n')
@@ -357,14 +346,14 @@ class Train:
             print(f'Model and optimizer parameters for the {self.iter_count}\'th iteration are saved in the {filename}.')
 
     def validation(self):
-        with torch.inference_mode():
+        with torch.no_grad():
             cum_validation_loss = 0
             cum_accuracy = 0
 
             for sample in self.val_loader:
                 obj_coords, projection_coord = sample
                 obj_coords = obj_coords.type(torch.FloatTensor).to(self.device, non_blocking=True)
-                projection_coord = projection_coord.type(torch.LongTensor).to(self.device, non_blocking=True)
+                projection_coord = projection_coord.type(torch.FloatTensor).to(self.device, non_blocking=True)
 
                 if self.use_mixed_precision:
                     with autocast():
@@ -374,18 +363,18 @@ class Train:
                     output = self.model(obj_coords)
                     loss = self.criterion(output[:, 0], projection_coord)
                 abs_diffs = torch.abs(output[:, 0] - projection_coord)
-                hit_count = torch.sum((abs_diffs <= THRESHOLD_FOR_HIT).to(int))
+                hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
                 accuracy = torch.div(hit_count, torch.numel(projection_coord))
 
                 cum_accuracy += accuracy.item()
                 cum_validation_loss += loss.item()
 
             self.validation_loss = cum_validation_loss / len(self.val_loader)
-            print('Validation (iter {:8d}, loss {:.4f})'.format(self.iter_count, self.validation_loss))
+            print('Validation (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.validation_loss))
 
             self.val_accuracy = cum_accuracy / len(self.val_loader)
             print(
-                'Max validation (accuracy) in iteration {:d} : ({:.4f})'.format(
+                'Max validation (accuracy) in iteration {:d} : ({:.6f})'.format(
                     self.iter_count, self.val_accuracy
                 )
             )
@@ -457,7 +446,6 @@ class Train:
             for sample in tqdm(self.train_loader):
                 self.model.train()
                 loss_item = self.step(sample)
-
                 if (
                         self.scheduler_type == 'one_cycle'
                         or self.scheduler_type == 'lambda'
@@ -469,7 +457,7 @@ class Train:
                 if self.loss_plot_period > 0 and self.iter_count % self.loss_plot_period == 0:
                     self.iter_average_loss = sum(iter_loss) / len(iter_loss)
 
-                    print('\nTraining   (iter {:8d}, loss {:.4f})'.format(self.iter_count, self.iter_average_loss))
+                    print('\nTraining   (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.iter_average_loss))
                     for param_count, param_group in enumerate(self.optimizer.param_groups):
                         self.curr_learning_rate[param_count] = param_group['lr']
                     iter_loss.clear()
@@ -492,7 +480,7 @@ class Train:
             self.epoch_loss.clear()
 
             print('\n' + '-' * 25)
-            print('Training      (EPOCH {:4d}, loss {:.4f})'.format(self.epoch_count, self.epoch_average_loss))
+            print('Training      (EPOCH {:4d}, loss {:.6f})'.format(self.epoch_count, self.epoch_average_loss))
             for param_count, param_group in enumerate(self.optimizer.param_groups):
                 self.curr_learning_rate[param_count] = param_group['lr']
                 print(
@@ -513,21 +501,71 @@ class Train:
             )
 
         print('-' * 50)
-        print('Best validation accuracy: {:4f}'.format(self.best_accuracy))
+        print('Best validation accuracy: {:6f}'.format(self.best_accuracy))
         if self.logging_tool == 'tensorboard':
             self.writer.close()
 
-    def run(self):
+    def run_train(self):
         self.train()
+
+    def read_model_file(self):
+        print('-' * 50)
+        print("Reading the projection estimation model ")
+        self.checkpoint = torch.load(self.best_model_path, map_location=torch.device(self.device))
+
+    def run_test(self):
+        if self.best_model_path is not None:
+            self.read_model_file()
+            self.model.load_state_dict(self.checkpoint["model_state_dict"])
+            self.model = self.model.to(self.device)
+
+            with torch.no_grad():
+                self.model.eval()
+                cum_test_loss = 0
+                cum_test_loss_accuracy = 0
+
+                for sample in self.test_loader:
+                    obj_coords, projection_coord = sample
+                    obj_coords = obj_coords.type(torch.FloatTensor).to(self.device, non_blocking=True)
+                    projection_coord = projection_coord.type(torch.FloatTensor).to(self.device, non_blocking=True)
+
+                    if self.use_mixed_precision:
+                        with autocast():
+                            output = self.model(obj_coords)
+                            loss = self.criterion(output[:, 0], projection_coord)
+                    else:
+                        output = self.model(obj_coords)
+                        loss = self.criterion(output[:, 0], projection_coord)
+                    abs_diffs = torch.abs(output[:, 0] - projection_coord)
+                    hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
+                    accuracy = torch.div(hit_count, torch.numel(projection_coord))
+
+                    cum_test_loss_accuracy += accuracy.item()
+                    cum_test_loss += loss.item()
+
+                self.test_loss = cum_test_loss / len(self.test_loader)
+                print('Test (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.test_loss))
+
+                self.test_accuracy = cum_test_loss_accuracy / len(self.test_loader)
+                print(
+                    'Max test (accuracy) in iteration {:d} : ({:.6f})'.format(
+                        self.iter_count, self.test_accuracy
+                    )
+                )
+        else:
+            print('No best model to perform testing!')
 
 
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver", default='manual')
-    parser.add_argument("--input_txt_path", help="Path to input txt file.", default='/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev.txt')
+    parser.add_argument("--input_txt_path", help="Path to input txt file.", default='/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev_non_norm.txt')
+    parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y'], default='x')
 
     args = parser.parse_args()
     driver = args.driver
     input_txt_path = args.input_txt_path
-    train_obj = Train(driver=driver, input_txt_path=input_txt_path)
-    train_obj.run()
+    projection_axis = args.projection_axis
+    proj_trainer = ProjectionTrainer(driver=driver, input_txt_path=input_txt_path, projection_axis=projection_axis)
+    proj_trainer.run_train()
+    proj_trainer.run_test()

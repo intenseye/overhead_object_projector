@@ -4,8 +4,11 @@ import math
 import numpy as np
 import cv2
 import random
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+FIXED_SEED = True
+FIXED_SEED_NUM = 35
 DEMO_MODE = False
 CAM_FOV_HOR = 60  # in degrees
 CAM_PIXEL_WIDTH = 1280  # number of horizontal pixel
@@ -39,7 +42,7 @@ Y_VER_SEARCH_MIN = 1.25
 X_VER_SEARCH_MAX = 10.0
 SEARCH_DISTANCE_STEP = 0.5
 EXPORT_TO_TXT = True
-PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev.txt'
+PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev_non_norm.txt'
 GREEN_COLOR = (0, 255, 0)
 YELLOW_COLOR = (255, 255, 0)
 RED_COLOR = (255, 0, 0)
@@ -85,19 +88,22 @@ def apply_roll(point, cx, cy):
     return rolled_point
 
 
-def get_normalized_input_coord(bbox, proj_mid):
-    norm_bbox_bottom_center = ((np.array(bbox[2]) + np.array(bbox[3])) / 2) / np.array((CAM_PIXEL_WIDTH, CAM_PIXEL_HEIGHT))
-    bbox_width_height_norm = np.array((bbox[1][0] - bbox[0][0], bbox[2][1] - bbox[1][1])) / np.array(
-        (CAM_PIXEL_WIDTH, CAM_PIXEL_HEIGHT))
+def calculate_input_coord(bbox, proj_mid):
+    bbox_bottom_center = ((np.array(bbox[2]) + np.array(bbox[3])) / 2)
+    bbox_width_height = np.array((bbox[1][0] - bbox[0][0], bbox[2][1] - bbox[1][1]))
+    proj_wrt_bbox_bottom_center = proj_mid[0] - bbox_bottom_center
 
-    proj_mid_norm = np.array(proj_mid[0]) / np.array((CAM_PIXEL_WIDTH, CAM_PIXEL_HEIGHT))
-    proj_wrt_bbox_bottom_center = proj_mid_norm - norm_bbox_bottom_center
-
-    return norm_bbox_bottom_center, bbox_width_height_norm, proj_wrt_bbox_bottom_center
+    return bbox_bottom_center, bbox_width_height, proj_wrt_bbox_bottom_center
 
 
 class PointEstimator:
     def __init__(self):
+
+        if FIXED_SEED:
+            os.environ['PYTHONHASHSEED'] = str(FIXED_SEED_NUM)
+            random.seed(FIXED_SEED_NUM)
+            np.random.seed(FIXED_SEED_NUM)
+
         self.z_ver = CAM_ALTITUDE  # cam_altitude in meters                                     (z in paper)
         self.z_hor = CAM_POS_WRT_REFERENCE  # cam_point w.r.t reference point in meters         (z' in paper)
         self.alpha_in_degrees_ver = CAM_PITCH_ANGLE  # cam_pitch_angle in degrees (w.r.t the vertical plane not horizontal)        (alpha in paper)
@@ -308,12 +314,17 @@ class PointEstimator:
 
 inputs = []
 outputs = []
+cam_width_heights = []
 point_estimator = PointEstimator()
 
 if DEMO_MODE:
     PAUSE_FIG_TIME = 0.50
 
-for x in np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARCH_COUNT):
+cam_width_height = np.array((CAM_PIXEL_WIDTH, CAM_PIXEL_HEIGHT))
+
+print('Sample collection is started!')
+
+for x in tqdm(np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARCH_COUNT)):
     for y_hor in np.arange(Y_HOR_SEARCH_MIN, Y_HOR_SEARCH_MAX, SEARCH_DISTANCE_STEP):
         for y_ver in np.arange(Y_VER_SEARCH_MIN, X_VER_SEARCH_MAX, SEARCH_DISTANCE_STEP):
             rotate_angle = random.uniform(ROTATE_ANGLE_MIN, ROTATE_ANGLE_MAX)
@@ -327,15 +338,17 @@ for x in np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARC
             point_estimator.calc_vertical_point_loc()
             point_estimator.calc_horizontal_point_loc()
             bbox, proj, proj_mid, front, back, top = point_estimator.get_bbox_proj_points()
-            mid_bottom_coord, width_height, proj_coord_offset = get_normalized_input_coord(bbox, proj_mid)
-            if (0 <= (mid_bottom_coord[0] - width_height[0] / 2)) and (
-                    (mid_bottom_coord[0] + width_height[0] / 2) < 1) and (
-                    mid_bottom_coord[1] - width_height[1] >= 0) and (
-                    mid_bottom_coord[1] < 1) and (mid_bottom_coord[1] + proj_coord_offset[1] < 1):
+            mid_bottom_coord, bbox_width_height, proj_coord_offset = calculate_input_coord(bbox, proj_mid)
+            if (0 <= (mid_bottom_coord[0] - bbox_width_height[0] / 2)) and (
+                    (mid_bottom_coord[0] + bbox_width_height[0] / 2) < CAM_PIXEL_WIDTH) and (
+                    mid_bottom_coord[1] - bbox_width_height[1] >= 0) and (
+                    mid_bottom_coord[1] < CAM_PIXEL_HEIGHT) and (
+                    mid_bottom_coord[1] + proj_coord_offset[1] < CAM_PIXEL_HEIGHT):
                 if not DEMO_MODE:
-                    input_sample = np.append(mid_bottom_coord, width_height)
+                    input_sample = np.append(mid_bottom_coord, bbox_width_height)
                     inputs.append(input_sample)
                     outputs.append(proj_coord_offset)
+                    cam_width_heights.append(cam_width_height)
 
                 if DEMO_MODE or DRAW_ENABLED:
                     image = np.zeros((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH, 3), dtype=np.uint8)
@@ -350,8 +363,8 @@ for x in np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARC
                     plt.cla()
 
 if (not DEMO_MODE) and EXPORT_TO_TXT:
-    export_data = np.hstack((inputs, outputs))
+    export_data = np.hstack((inputs, outputs, cam_width_heights))
     dir_path = os.path.dirname(PATH_TO_OUTPUT_FILE)
     os.makedirs(dir_path, exist_ok=True)
-    np.savetxt(PATH_TO_OUTPUT_FILE, export_data, header='x_coord_mid_bottom y_coord_mid_bottom width height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
-print('Done')
+    np.savetxt(PATH_TO_OUTPUT_FILE, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height cam_width cam_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
+print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))
