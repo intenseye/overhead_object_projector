@@ -10,7 +10,7 @@ def init_with_normal(modules):
 
 
 class RegressionModel(nn.Module):
-    def __init__(self, init_w_normal=False):
+    def __init__(self, init_w_normal=False, projection_axis=None):
         super(RegressionModel, self).__init__()
         self.linear1 = nn.Linear(4, 16)
         self.relu1 = nn.ReLU()
@@ -22,7 +22,10 @@ class RegressionModel(nn.Module):
         self.relu4 = nn.ReLU()
         self.linear5 = nn.Linear(64, 16)
         self.relu5 = nn.ReLU()
-        self.linear6 = nn.Linear(16, 1)
+        if projection_axis == 'both':
+            self.linear6 = nn.Linear(16, 2)
+        else:
+            self.linear6 = nn.Linear(16, 1)
 
         if init_w_normal:
             self.init_weights()

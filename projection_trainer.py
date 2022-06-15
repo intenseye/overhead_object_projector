@@ -139,7 +139,7 @@ class ProjectionTrainer:
         self.training_loss_at_min_val_loss = math.inf
 
         self.initialize_dataloaders(input_txt_path)
-        model = RegressionModel(init_w_normal=self.init_w_normal)
+        model = RegressionModel(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis)
 
         self.loss_plot_period = len(self.train_loader)//VAL_COUNT_IN_EPOCH
         self.model_save_period = 0
@@ -185,9 +185,10 @@ class ProjectionTrainer:
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
         inputs_norm = torch.from_numpy(inputs_norm)
         if self.projection_axis == 'x':
-            targets_norm = torch.from_numpy(targets_norm[:, 0])
-        else:
-            targets_norm = torch.from_numpy(targets_norm[:, 1])
+            targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
+        elif self.projection_axis == 'y':
+            targets_norm = np.expand_dims(targets_norm[:, 1], axis=1)
+        targets_norm = torch.from_numpy(targets_norm)
         self.train_ds = TensorDataset(inputs_norm, targets_norm)
         self.generator = torch.Generator()
         if self.fixed_partition_seed:
@@ -358,11 +359,11 @@ class ProjectionTrainer:
                 if self.use_mixed_precision:
                     with autocast():
                         output = self.model(obj_coords)
-                        loss = self.criterion(output[:, 0], projection_coord)
+                        loss = self.criterion(output, projection_coord)
                 else:
                     output = self.model(obj_coords)
-                    loss = self.criterion(output[:, 0], projection_coord)
-                abs_diffs = torch.abs(output[:, 0] - projection_coord)
+                    loss = self.criterion(output, projection_coord)
+                abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                 hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
                 accuracy = torch.div(hit_count, torch.numel(projection_coord))
 
@@ -384,13 +385,13 @@ class ProjectionTrainer:
         if self.use_mixed_precision:
             with autocast():
                 output = self.model(object_coords)
-                loss = self.criterion(output[:, 0], projection_coord)
+                loss = self.criterion(output, projection_coord)
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
             output = self.model(object_coords)
-            loss = self.criterion(output[:, 0], projection_coord)
+            loss = self.criterion(output, projection_coord)
             loss.backward()
             self.optimizer.step()
         self.iter_count += 1
@@ -532,11 +533,11 @@ class ProjectionTrainer:
                     if self.use_mixed_precision:
                         with autocast():
                             output = self.model(obj_coords)
-                            loss = self.criterion(output[:, 0], projection_coord)
+                            loss = self.criterion(output, projection_coord)
                     else:
                         output = self.model(obj_coords)
-                        loss = self.criterion(output[:, 0], projection_coord)
-                    abs_diffs = torch.abs(output[:, 0] - projection_coord)
+                        loss = self.criterion(output, projection_coord)
+                    abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                     hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
                     accuracy = torch.div(hit_count, torch.numel(projection_coord))
 
@@ -560,7 +561,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver", default='manual')
     parser.add_argument("--input_txt_path", help="Path to input txt file.", default='/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev_non_norm.txt')
-    parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y'], default='x')
+    parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y', 'both'], default='y')
 
     args = parser.parse_args()
     driver = args.driver
