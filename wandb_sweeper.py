@@ -3,11 +3,10 @@ import os
 import sys
 import json
 
-params = dict(batch_size="32", loss_function_reg="mse", tuning_method="loss", fixed_partition_seed="True",
-              validation_ratio="0.010", test_ratio="0.988", zero_mean_enabled="False", use_mixed_precision="False",
-              max_epoch="2500", init_learning_rate="8.8809958930846e-05", scheduler_type="one_cycle", betas_0="0.9",
-              betas_1="0.999", weight_decay="1.6291723470742454e-06", eps_adam="3.305798423244983e-11",
-              init_w_normal="False")
+params = dict(network_size="xl", batch_size="16", loss_function_reg="mse", tuning_method="loss", fixed_partition_seed="True",
+              validation_ratio="0.010", test_ratio="0.986", zero_mean_enabled="False", use_mixed_precision="False",
+              max_epoch="2500", init_learning_rate="8.8809958930846e-04", scheduler_type="one_cycle", betas_0="0.9",
+              betas_1="0.999", weight_decay="1.6291723470742454e-06", eps_adam="3.305798423244983e-11")
 
 
 def wandb_sweep_runner():
@@ -23,8 +22,8 @@ def wandb_sweep_runner():
         convert_file.write('param_sweep = ')
         convert_file.write(json.dumps(params))
 
-    input_txt_path = '/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev_non_norm.txt'
-    projection_axis = 'y'
+    input_txt_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_non_norm.txt'
+    projection_axis = 'both'
     driver = 'wandb'
 
     args = [sys.executable, "projection_trainer.py",

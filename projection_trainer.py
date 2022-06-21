@@ -14,19 +14,22 @@ from tqdm import tqdm
 import wandb
 from temp_params import *
 from argparse import ArgumentParser
-from models import RegressionModel
+from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, RegressionModelSmall, RegressionModelXSmall
 
 
 DEVICE = "cuda:0"  # 'cuda:0' or 'cpu'
 LOGGING_TOOL = 'wandb'  # 'wandb' or 'tensorboard'
 NUM_WORKERS = 0
-PIXEL_THRESHOLD_FOR_HIT = 5
+PIXEL_THRESHOLD_FOR_HIT = 2
 FIXED_SEED_NUM = 35
-VAL_COUNT_IN_EPOCH = 4
+VAL_COUNT_IN_EPOCH = 1
 LOSS_DECREASE_COUNT = 4
 LOSS_DECREASE_GAMMA = 0.1
 LOSS_PATIENCE = 2
-MAIN_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/crane_simulation/'
+MAIN_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/'
+USE_BATCH_NORM = False
+BATCH_MOMENTUM = 0.1
+INIT_W_NORMAL = False
 
 
 def seed_worker(worker_id):
@@ -80,6 +83,18 @@ class ProjectionTrainer:
         print('Overhead object projection training is started.')
         self.projection_axis = projection_axis
         self.driver = driver
+        self.network_size = param_sweep['network_size']
+        if self.network_size == 'xl':
+            RegressionModel = RegressionModelXLarge
+        elif self.network_size == 'l':
+            RegressionModel = RegressionModelLarge
+        elif self.network_size == 'm':
+            RegressionModel = RegressionModelMedium
+        elif self.network_size == 's':
+            RegressionModel = RegressionModelSmall
+        elif self.network_size == 'xs':
+            RegressionModel = RegressionModelXSmall
+
         self.batch_size = int(param_sweep['batch_size'])
         self.loss_function = param_sweep['loss_function_reg']
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
@@ -104,7 +119,6 @@ class ProjectionTrainer:
                       float(param_sweep['betas_1']))
         self.weight_decay = float(param_sweep['weight_decay'])
         self.eps_adam = float(param_sweep['eps_adam'])
-        self.init_w_normal = str2bool(param_sweep['init_w_normal'])
 
         if str(self.device) != 'cpu':
             torch.cuda.set_device(self.device)
@@ -139,7 +153,8 @@ class ProjectionTrainer:
         self.training_loss_at_min_val_loss = math.inf
 
         self.initialize_dataloaders(input_txt_path)
-        model = RegressionModel(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis)
+        model = RegressionModel(init_w_normal=INIT_W_NORMAL, projection_axis=self.projection_axis,
+                                use_batch_norm=USE_BATCH_NORM, batch_momentum=BATCH_MOMENTUM)
 
         self.loss_plot_period = len(self.train_loader)//VAL_COUNT_IN_EPOCH
         self.model_save_period = 0
@@ -156,10 +171,12 @@ class ProjectionTrainer:
             self.initialize_wandb(time_stamp)
 
         if projection_axis == 'x':
-            related_cam_dim = self.image_size[0]
+            self.related_cam_dim = self.image_size[0]
+        elif projection_axis == 'y':
+            self.related_cam_dim = self.image_size[1]
         else:
-            related_cam_dim = self.image_size[1]
-        self.normalized_hit_thr = PIXEL_THRESHOLD_FOR_HIT / related_cam_dim
+            self.related_cam_dim = math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
+        self.normalized_hit_thr = PIXEL_THRESHOLD_FOR_HIT / self.related_cam_dim
 
         self.best_model_path = None
 
@@ -188,6 +205,8 @@ class ProjectionTrainer:
             targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
         elif self.projection_axis == 'y':
             targets_norm = np.expand_dims(targets_norm[:, 1], axis=1)
+        else:
+            targets_norm = targets_norm * np.array(self.image_size) / math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
         targets_norm = torch.from_numpy(targets_norm)
         self.train_ds = TensorDataset(inputs_norm, targets_norm)
         self.generator = torch.Generator()
@@ -259,8 +278,12 @@ class ProjectionTrainer:
         wandb.define_metric('training_loss/iteration', summary='none')
         wandb.define_metric('validation_loss/iteration', summary='min')
         wandb.define_metric('validation_accuracy/iteration', summary='max')
-        # best_validation_accuracy is used as the optimization objective in Bayesian search
+        # best_validation_accuracy or least_validation_loss used as the optimization objective in Bayesian search
         wandb.define_metric('best_validation_accuracy/iteration')
+        wandb.define_metric('least_validation_loss/iteration')
+        wandb.define_metric('test_accuracy')
+        wandb.define_metric('mean_test_error')
+        wandb.define_metric('max_test_error')
         for param_count in range(len(self.optimizer.param_groups)):
             wandb.define_metric('learning_rate_' + str(param_count) + '/iteration', summary='none')
 
@@ -296,7 +319,7 @@ class ProjectionTrainer:
         if self.logging_tool == 'wandb':
             wandb.run.summary['training_loss_at_min_val_loss'] = self.training_loss_at_min_val_loss
 
-    def save_log_iteration(self):
+    def save_log_iteration_training(self):
         if self.logging_tool == 'tensorboard':
             writer = self.writer
             writer.add_scalar('training_loss/iteration', self.iter_average_loss, self.iter_count)
@@ -319,6 +342,22 @@ class ProjectionTrainer:
             )
             for param_count, lr in enumerate(self.curr_learning_rate):
                 wandb.log({'learning_rate_' + str(param_count) + '/iteration': lr}, step=self.iter_count)
+
+    def save_log_iteration_test(self):
+        if self.logging_tool == 'tensorboard':
+            writer = self.writer
+            writer.add_scalar('mean_test_error', self.mean_test_error)
+            writer.add_scalar('max_test_error', self.max_test_error)
+            writer.add_scalar('test_accuracy', self.test_accuracy)
+        elif self.logging_tool == 'wandb':
+            wandb.log(
+                {
+                    'mean_test_error': self.mean_test_error,
+                    'max_test_error': self.max_test_error,
+                    'test_accuracy': self.test_accuracy,
+                },
+                step=self.iter_count,
+            )
 
     def save_checkpoint(
             self, model_state_dict, optimizer_state_dict, epoch, iteration, accuracy, loss, is_best=False
@@ -365,7 +404,7 @@ class ProjectionTrainer:
                     loss = self.criterion(output, projection_coord)
                 abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                 hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
-                accuracy = torch.div(hit_count, torch.numel(projection_coord))
+                accuracy = torch.div(hit_count, torch.numel(abs_diffs))
 
                 cum_accuracy += accuracy.item()
                 cum_validation_loss += loss.item()
@@ -433,7 +472,7 @@ class ProjectionTrainer:
             self.training_loss_at_min_val_loss = self.iter_average_loss
             self.update_min_loss_summary()
 
-        self.save_log_iteration()
+        self.save_log_iteration_training()
 
     def train(self):
         for self.epoch_count in range(self.init_epoch_count, self.max_epoch + 1):
@@ -503,8 +542,6 @@ class ProjectionTrainer:
 
         print('-' * 50)
         print('Best validation accuracy: {:6f}'.format(self.best_accuracy))
-        if self.logging_tool == 'tensorboard':
-            self.writer.close()
 
     def run_train(self):
         self.train()
@@ -523,7 +560,9 @@ class ProjectionTrainer:
             with torch.no_grad():
                 self.model.eval()
                 cum_test_loss = 0
+                cum_abs_diff = 0
                 cum_test_loss_accuracy = 0
+                max_diff = 0
 
                 for sample in self.test_loader:
                     obj_coords, projection_coord = sample
@@ -539,20 +578,30 @@ class ProjectionTrainer:
                         loss = self.criterion(output, projection_coord)
                     abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                     hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
-                    accuracy = torch.div(hit_count, torch.numel(projection_coord))
+                    accuracy = torch.div(hit_count, torch.numel(abs_diffs))
 
                     cum_test_loss_accuracy += accuracy.item()
                     cum_test_loss += loss.item()
+                    cum_abs_diff += torch.sum(abs_diffs).item()
+                    if torch.max(abs_diffs).item() > max_diff:
+                        max_diff = torch.max(abs_diffs).item()
+
 
                 self.test_loss = cum_test_loss / len(self.test_loader)
-                print('Test (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.test_loss))
+                print('Test loss {:.6f}'.format(self.test_loss))
 
                 self.test_accuracy = cum_test_loss_accuracy / len(self.test_loader)
-                print(
-                    'Max test (accuracy) in iteration {:d} : ({:.6f})'.format(
-                        self.iter_count, self.test_accuracy
-                    )
-                )
+                print('Test accuracy: ({:.6f})'.format(self.test_accuracy))
+
+                self.mean_test_error = (cum_abs_diff * self.related_cam_dim) / (len(self.test_loader) * self.batch_size)
+                print('Mean test pixel error: ({:.6f})'.format(self.mean_test_error))
+
+                self.max_test_error = max_diff * self.related_cam_dim
+                print('Max test pixel error: ({:.6f})'.format(self.max_test_error))
+
+                self.save_log_iteration_test()
+                if self.logging_tool == 'tensorboard':
+                    self.writer.close()
         else:
             print('No best model to perform testing!')
 
@@ -560,8 +609,8 @@ class ProjectionTrainer:
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver", default='manual')
-    parser.add_argument("--input_txt_path", help="Path to input txt file.", default='/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev_non_norm.txt')
-    parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y', 'both'], default='y')
+    parser.add_argument("--input_txt_path", help="Path to input txt file.", default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_non_norm.txt')
+    parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y', 'both'], default='both')
 
     args = parser.parse_args()
     driver = args.driver

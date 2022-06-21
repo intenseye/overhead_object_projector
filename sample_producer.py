@@ -6,6 +6,7 @@ import cv2
 import random
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import pickle
 
 FIXED_SEED = True
 FIXED_SEED_NUM = 35
@@ -29,7 +30,7 @@ ROLL_ANGLE = 10  # in degrees (clockwise direction)
 RADIAL_DIST_ENABLED = True
 K_1 = -0.05
 K_2 = 0.0
-RANDOM_DEVIATION_ENABLED = True
+RANDOM_DEVIATION_ENABLED = False
 DEVIATON_SIGMA = 2
 ROTATE_ANGLE_MIN = -10
 ROTATE_ANGLE_MAX = 10
@@ -42,7 +43,7 @@ Y_VER_SEARCH_MIN = 1.25
 X_VER_SEARCH_MAX = 10.0
 SEARCH_DISTANCE_STEP = 0.5
 EXPORT_TO_TXT = True
-PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/crane_simulation/inputs_outputs_w_roll_dev_non_norm.txt'
+PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_non_norm.txt'
 GREEN_COLOR = (0, 255, 0)
 YELLOW_COLOR = (255, 255, 0)
 RED_COLOR = (255, 0, 0)
@@ -365,6 +366,9 @@ for x in tqdm(np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_
 if (not DEMO_MODE) and EXPORT_TO_TXT:
     export_data = np.hstack((inputs, outputs, cam_width_heights))
     dir_path = os.path.dirname(PATH_TO_OUTPUT_FILE)
+    path_to_auxiliary_data = os.path.join(dir_path, 'auxiliary_data_w_roll_non_norm.pickle')
     os.makedirs(dir_path, exist_ok=True)
+    with open(path_to_auxiliary_data, 'wb') as handle:
+        pickle.dump([point_estimator.distance_along_axis, point_estimator.distance_perp_axis], handle, protocol=pickle.HIGHEST_PROTOCOL)
     np.savetxt(PATH_TO_OUTPUT_FILE, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height cam_width cam_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
 print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))
