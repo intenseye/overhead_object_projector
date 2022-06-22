@@ -14,7 +14,7 @@ from tqdm import tqdm
 import wandb
 from temp_params import *
 from argparse import ArgumentParser
-from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, RegressionModelSmall, RegressionModelXSmall
+from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 
 
 DEVICE = "cuda:0"  # 'cuda:0' or 'cpu'
@@ -78,6 +78,21 @@ class Criterion_mse_loss(nn.Module):
         return loss
 
 
+class Criterion_nth_power_loss(nn.Module):
+    def __init__(self, power_term=2):
+        super(Criterion_nth_power_loss, self).__init__()
+        self.power_term = power_term
+
+    def forward(self, output, target):
+        loss = self.loss(output, target)
+        return loss
+
+    def loss(self, output, target):
+        dist = output - target
+        power_loss = dist.pow(self.power_term).mean(1).pow(1/self.power_term)
+        return power_loss.mean()
+
+
 class ProjectionTrainer:
     def __init__(self, driver, input_txt_path, projection_axis):
         print('Overhead object projection training is started.')
@@ -94,6 +109,8 @@ class ProjectionTrainer:
             RegressionModel = RegressionModelSmall
         elif self.network_size == 'xs':
             RegressionModel = RegressionModelXSmall
+        elif self.network_size == 'linear':
+            RegressionModel = RegressionModelLinear
 
         self.batch_size = int(param_sweep['batch_size'])
         self.loss_function = param_sweep['loss_function_reg']
@@ -294,6 +311,8 @@ class ProjectionTrainer:
 
         if self.loss_function == 'mse':
             self.criterion = Criterion_mse_loss()
+        if self.loss_function == 'min_max_error':
+            self.criterion = Criterion_nth_power_loss(power_term=6)
 
         total_steps = self.max_epoch * len(self.train_loader)
         if self.scheduler_type == 'reduce_plateau':

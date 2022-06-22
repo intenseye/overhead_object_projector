@@ -282,3 +282,23 @@ class RegressionModelXSmall(nn.Module):
         init_with_normal(self.modules())
 
 
+class RegressionModelLinear(nn.Module):
+    def __init__(self, projection_axis='x', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+        super(RegressionModelLinear, self).__init__()
+        self.use_batch_norm = use_batch_norm
+
+        if projection_axis == 'both':
+            self.linear1 = nn.Linear(4, 2)
+        else:
+            self.linear1 = nn.Linear(4, 1)
+        if init_w_normal:
+            self.init_weights()
+
+    def forward(self, x):
+        x = self.linear1(x)
+        return x
+
+    def init_weights(self):
+        init_with_normal(self.modules())
+
+
