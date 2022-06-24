@@ -15,6 +15,7 @@ CAM_FOV_HOR = 60  # in degrees
 CAM_PIXEL_WIDTH = 1280  # number of horizontal pixel
 CAM_PIXEL_HEIGHT = 720  # number of vertical pixel
 HALF_PIXEL_SIZE = 1 / 2
+CAM_REGION_EXPAND_RATIO = 3.0  # Odd integer number is advised.
 CAM_ALTITUDE = 8.0
 CAM_POS_WRT_REFERENCE = 5.0
 CAM_PITCH_ANGLE = 80.0
@@ -31,7 +32,7 @@ RADIAL_DIST_ENABLED = True
 K_1 = -0.05
 K_2 = 0.0
 RANDOM_DEVIATION_ENABLED = False
-DEVIATON_SIGMA = 2
+DEVIATON_SIGMA = 5
 ROTATE_ANGLE_MIN = -10
 ROTATE_ANGLE_MAX = 10
 X_SEARCH_MIN = 20.0
@@ -43,7 +44,7 @@ Y_VER_SEARCH_MIN = 1.25
 X_VER_SEARCH_MAX = 10.0
 SEARCH_DISTANCE_STEP = 0.5
 EXPORT_TO_TXT = True
-PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_non_norm.txt'
+PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_temp.txt'
 GREEN_COLOR = (0, 255, 0)
 YELLOW_COLOR = (255, 255, 0)
 RED_COLOR = (255, 0, 0)
@@ -134,20 +135,27 @@ class PointEstimator:
         self.t_prime = 0
         self.t_double_prime = 0
 
-        self.distance_along_axis = np.ones(CAM_PIXEL_HEIGHT, dtype=float) * sys.float_info.max  #                                   (d_a^j in paper)
-        self.distance_perp_axis = np.ones((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH), dtype=float) * sys.float_info.max  #                 (d_p^{j,i} in paper)
+        self.extended_height = int(CAM_REGION_EXPAND_RATIO * CAM_PIXEL_HEIGHT)
+        self.extended_width = int(CAM_REGION_EXPAND_RATIO * CAM_PIXEL_WIDTH)
+
+        self.extended_y_start = -int((CAM_REGION_EXPAND_RATIO - 1) * CAM_PIXEL_HEIGHT / 2)
+        self.extended_x_start = -int((CAM_REGION_EXPAND_RATIO - 1) * CAM_PIXEL_WIDTH / 2)
+        self.top_left_pixel_coord = np.array([self.extended_x_start, self.extended_y_start])
+
+        self.distance_along_axis = np.ones(self.extended_height, dtype=float) * sys.float_info.max  #                                   (d_a^j in paper)
+        self.distance_perp_axis = np.ones((self.extended_height, self.extended_width), dtype=float) * sys.float_info.max  #                 (d_p^{j,i} in paper)
 
         self.calc_pixel_distances()
 
     def calc_pixel_distances(self):
-        for j in range(CAM_PIXEL_HEIGHT):
+        for ind_j, j in enumerate(range(self.extended_y_start, self.extended_height + self.extended_y_start)):
             pixel_ver_angle = self.alpha_in_degrees_ver - (j - self.cy + HALF_PIXEL_SIZE) * self.IFOV  #                            (delta_j in paper)
             if pixel_ver_angle < 90:
-                self.distance_along_axis[j] = self.z_ver * (math.tan(math.radians(self.alpha_in_degrees_ver)) - math.tan(math.radians(pixel_ver_angle)))
+                self.distance_along_axis[ind_j] = self.z_ver * (math.tan(math.radians(self.alpha_in_degrees_ver)) - math.tan(math.radians(pixel_ver_angle)))
                 distance_to_center = self.z_ver / math.cos(math.radians(pixel_ver_angle))
-                for i in range(CAM_PIXEL_WIDTH):
+                for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
                     zeta_angle = (i - self.cx + HALF_PIXEL_SIZE) * self.IFOV  #                                                     (zeta_i in paper)
-                    self.distance_perp_axis[j, i] = distance_to_center * math.tan(math.radians(zeta_angle))
+                    self.distance_perp_axis[ind_j, ind_i] = distance_to_center * math.tan(math.radians(zeta_angle))
 
     def set_object_location(self, y_ver, y_hor, x, rotate_angle):
         self.y_ver = y_ver
@@ -366,9 +374,9 @@ for x in tqdm(np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_
 if (not DEMO_MODE) and EXPORT_TO_TXT:
     export_data = np.hstack((inputs, outputs, cam_width_heights))
     dir_path = os.path.dirname(PATH_TO_OUTPUT_FILE)
-    path_to_auxiliary_data = os.path.join(dir_path, 'auxiliary_data_w_roll_non_norm.pickle')
+    path_to_auxiliary_data = os.path.join(dir_path, 'auxiliary_data_w_roll_temp.pickle')
     os.makedirs(dir_path, exist_ok=True)
     with open(path_to_auxiliary_data, 'wb') as handle:
-        pickle.dump([point_estimator.distance_along_axis, point_estimator.distance_perp_axis], handle, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump([point_estimator.distance_along_axis, point_estimator.distance_perp_axis, point_estimator.top_left_pixel_coord], handle, protocol=pickle.HIGHEST_PROTOCOL)
     np.savetxt(PATH_TO_OUTPUT_FILE, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height cam_width cam_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
 print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))

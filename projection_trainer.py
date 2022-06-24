@@ -2,6 +2,7 @@ import os.path
 import random
 import math
 import json
+import pickle
 import numpy as np
 from datetime import datetime
 import torch
@@ -94,11 +95,13 @@ class Criterion_nth_power_loss(nn.Module):
 
 
 class ProjectionTrainer:
-    def __init__(self, driver, input_txt_path, projection_axis):
+    def __init__(self, driver, input_txt_path, distance_map_path, projection_axis):
         print('Overhead object projection training is started.')
         self.projection_axis = projection_axis
         self.driver = driver
         self.network_size = param_sweep['network_size']
+
+        RegressionModel = None
         if self.network_size == 'xl':
             RegressionModel = RegressionModelXLarge
         elif self.network_size == 'l':
@@ -169,6 +172,7 @@ class ProjectionTrainer:
         self.min_val_loss = math.inf
         self.training_loss_at_min_val_loss = math.inf
 
+        self.load_distance_map(distance_map_path)
         self.initialize_dataloaders(input_txt_path)
         model = RegressionModel(init_w_normal=INIT_W_NORMAL, projection_axis=self.projection_axis,
                                 use_batch_norm=USE_BATCH_NORM, batch_momentum=BATCH_MOMENTUM)
@@ -195,6 +199,9 @@ class ProjectionTrainer:
             self.related_cam_dim = math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
         self.normalized_hit_thr = PIXEL_THRESHOLD_FOR_HIT / self.related_cam_dim
 
+        self.denorm_coeff = torch.tensor([self.image_size[1], self.image_size[0]], dtype=torch.float32,
+                                         device=self.device)
+
         self.best_model_path = None
 
     def dataset_splitter(self, dataset):
@@ -214,17 +221,24 @@ class ProjectionTrainer:
         train_ds = Subset(dataset, train_indices)
         return train_ds, val_ds, test_ds
 
+    def load_distance_map(self, distance_map_path):
+        with open(distance_map_path, 'rb') as file:
+            self.distance_along_axis, self.distance_perp_axis, self.dist_map_top_left_coord = pickle.load(file)
+            self.distance_along_axis = torch.from_numpy(self.distance_along_axis).float().to(self.device)
+            self.distance_perp_axis = torch.from_numpy(self.distance_perp_axis).float().to(self.device)
+            self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
+
     def initialize_dataloaders(self, input_txt_path):
         inputs, targets, self.image_size = read_input_txt(input_txt_path)
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
-        inputs_norm = torch.from_numpy(inputs_norm)
+        inputs_norm = torch.from_numpy(inputs_norm).float()
         if self.projection_axis == 'x':
             targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
         elif self.projection_axis == 'y':
             targets_norm = np.expand_dims(targets_norm[:, 1], axis=1)
         else:
             targets_norm = targets_norm * np.array(self.image_size) / math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
-        targets_norm = torch.from_numpy(targets_norm)
+        targets_norm = torch.from_numpy(targets_norm).float()
         self.train_ds = TensorDataset(inputs_norm, targets_norm)
         self.generator = torch.Generator()
         if self.fixed_partition_seed:
@@ -282,12 +296,13 @@ class ProjectionTrainer:
 
     def initialize_wandb(self, folder_name):
         config_dict = param_sweep
-        wandb.init(
+        self.wandb_run = wandb.init(
             project='overhead_object_projection',
             name=folder_name,
             group=self.projection_axis,
             job_type=self.driver,
             dir=self.log_folder_path,
+            reinit=True,
         )
 
         wandb.config.update(config_dict)
@@ -580,8 +595,10 @@ class ProjectionTrainer:
                 self.model.eval()
                 cum_test_loss = 0
                 cum_abs_diff = 0
+                cum_abs_diff_earth = 0
                 cum_test_loss_accuracy = 0
                 max_diff = 0
+                max_diff_earth = 0
 
                 for sample in self.test_loader:
                     obj_coords, projection_coord = sample
@@ -595,6 +612,21 @@ class ProjectionTrainer:
                     else:
                         output = self.model(obj_coords)
                         loss = self.criterion(output, projection_coord)
+
+                    denorm_output = torch.round((output + obj_coords[:, :2]) * self.denorm_coeff).int()
+                    denorm_pred = torch.round((projection_coord + obj_coords[:, :2]) * self.denorm_coeff).int()
+                    denorm_output_shifted = denorm_output - self.dist_map_top_left_coord
+                    denorm_pred_shifted = denorm_pred - self.dist_map_top_left_coord
+                    dist = torch.zeros([denorm_output_shifted.shape[0], 2], dtype=torch.float32, device=self.device)
+                    for i in range(denorm_output_shifted.shape[0]):
+                        along_dist = self.distance_along_axis[denorm_output_shifted[i][1]] - self.distance_along_axis[
+                            denorm_pred_shifted[i][1]]
+                        perp_dist = self.distance_perp_axis[denorm_output_shifted[i][1], denorm_output_shifted[i][0]] - \
+                                    self.distance_perp_axis[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0]]
+                        dist[i][0] = perp_dist
+                        dist[i][1] = along_dist
+                    abs_diffs_earth = torch.linalg.norm(dist, dim=1)
+
                     abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                     hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
                     accuracy = torch.div(hit_count, torch.numel(abs_diffs))
@@ -602,25 +634,30 @@ class ProjectionTrainer:
                     cum_test_loss_accuracy += accuracy.item()
                     cum_test_loss += loss.item()
                     cum_abs_diff += torch.sum(abs_diffs).item()
+                    cum_abs_diff_earth += torch.sum(abs_diffs_earth).item()
                     if torch.max(abs_diffs).item() > max_diff:
                         max_diff = torch.max(abs_diffs).item()
+                    if torch.max(abs_diffs_earth).item() > max_diff_earth:
+                        max_diff_earth = torch.max(abs_diffs_earth).item()
 
 
                 self.test_loss = cum_test_loss / len(self.test_loader)
                 print('Test loss {:.6f}'.format(self.test_loss))
-
                 self.test_accuracy = cum_test_loss_accuracy / len(self.test_loader)
                 print('Test accuracy: ({:.6f})'.format(self.test_accuracy))
-
                 self.mean_test_error = (cum_abs_diff * self.related_cam_dim) / (len(self.test_loader) * self.batch_size)
                 print('Mean test pixel error: ({:.6f})'.format(self.mean_test_error))
-
                 self.max_test_error = max_diff * self.related_cam_dim
                 print('Max test pixel error: ({:.6f})'.format(self.max_test_error))
+                self.mean_test_error_earth = cum_abs_diff_earth / (len(self.test_loader) * self.batch_size)
+                print('Mean test distance error: ({:.6f})'.format(self.mean_test_error_earth))
+                print('Max test distance error: ({:.6f})'.format(max_diff_earth))
 
                 self.save_log_iteration_test()
                 if self.logging_tool == 'tensorboard':
                     self.writer.close()
+                elif self.logging_tool == 'wandb':
+                    self.wandb_run.finish()
         else:
             print('No best model to perform testing!')
 
@@ -628,13 +665,17 @@ class ProjectionTrainer:
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver", default='manual')
-    parser.add_argument("--input_txt_path", help="Path to input txt file.", default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_non_norm.txt')
+    parser.add_argument("--input_txt_path", help="Path to input txt file.",
+                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_dev1.txt')
+    parser.add_argument("--distance_map_path", help="Path distance map.",
+                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_w_roll_temp.pickle')
     parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y', 'both'], default='both')
 
     args = parser.parse_args()
     driver = args.driver
     input_txt_path = args.input_txt_path
     projection_axis = args.projection_axis
-    proj_trainer = ProjectionTrainer(driver=driver, input_txt_path=input_txt_path, projection_axis=projection_axis)
+    distance_map_path = args.distance_map_path
+    proj_trainer = ProjectionTrainer(driver=driver, input_txt_path=input_txt_path, distance_map_path=distance_map_path, projection_axis=projection_axis)
     proj_trainer.run_train()
     proj_trainer.run_test()

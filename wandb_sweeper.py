@@ -22,13 +22,15 @@ def wandb_sweep_runner():
         convert_file.write('param_sweep = ')
         convert_file.write(json.dumps(params))
 
-    input_txt_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_non_norm.txt'
+    input_txt_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_dev1.txt'
+    distance_map_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_w_roll_dev1.pickle'
     projection_axis = 'both'
     driver = 'wandb'
 
     args = [sys.executable, "projection_trainer.py",
             "--driver", driver,
             "--input_txt_path", input_txt_path,
+            "--distance_map_path", distance_map_path,
             "--projection_axis", projection_axis]
     subprocess.call(args, stdout=None, stderr=None, shell=False, env=modified_env)
 
