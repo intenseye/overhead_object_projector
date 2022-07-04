@@ -6,7 +6,7 @@ import json
 params = dict(network_size="xl", batch_size="16", loss_function_reg="mse", tuning_method="loss", fixed_partition_seed="True",
               validation_ratio="0.010", test_ratio="0.986", zero_mean_enabled="False", use_mixed_precision="False",
               max_epoch="2500", init_learning_rate="8.8809958930846e-04", scheduler_type="one_cycle", betas_0="0.9",
-              betas_1="0.999", weight_decay="1.6291723470742454e-06", eps_adam="3.305798423244983e-11")
+              betas_1="0.999", weight_decay="1.6291723470742454e-06", eps_adam="3.305798423244983e-11", activation="relu")
 
 
 def wandb_sweep_runner():

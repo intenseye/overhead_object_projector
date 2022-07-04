@@ -22,6 +22,7 @@ DEVICE = "cuda:0"  # 'cuda:0' or 'cpu'
 LOGGING_TOOL = 'wandb'  # 'wandb' or 'tensorboard'
 NUM_WORKERS = 0
 PIXEL_THRESHOLD_FOR_HIT = 2
+DISTANCE_THRESHOLD_FOR_HIT = 0.5  # in meters
 FIXED_SEED_NUM = 35
 VAL_COUNT_IN_EPOCH = 1
 LOSS_DECREASE_COUNT = 4
@@ -116,6 +117,7 @@ class ProjectionTrainer:
             RegressionModel = RegressionModelLinear
 
         self.batch_size = int(param_sweep['batch_size'])
+        self.activation = param_sweep['activation']
         self.loss_function = param_sweep['loss_function_reg']
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
         print('Model and log time stamp folder: ' + str(time_stamp))
@@ -164,9 +166,9 @@ class ProjectionTrainer:
                 convert_file.write(json.dumps(param_sweep))
 
         self.val_accuracy = 0.0
-        self.validation_loss = 1.0
+        self.validation_loss = math.inf
         self.best_accuracy = 0.0
-        self.least_loss = 1.0
+        self.least_loss = math.inf
         self.init_epoch_count = 1
         self.iter_count = 0
         self.min_val_loss = math.inf
@@ -175,11 +177,12 @@ class ProjectionTrainer:
         self.load_distance_map(distance_map_path)
         self.initialize_dataloaders(input_txt_path)
         model = RegressionModel(init_w_normal=INIT_W_NORMAL, projection_axis=self.projection_axis,
-                                use_batch_norm=USE_BATCH_NORM, batch_momentum=BATCH_MOMENTUM)
+                                use_batch_norm=USE_BATCH_NORM, batch_momentum=BATCH_MOMENTUM,
+                                activation=self.activation)
 
         self.loss_plot_period = len(self.train_loader)//VAL_COUNT_IN_EPOCH
         self.model_save_period = 0
-        if self.validation_ratio == 0:
+        if int(len(self.train_ds) * self.validation_ratio) == 0:
             self.model_save_period = len(self.train_loader)
 
         optimizer = AdamW(model.parameters(), lr=self.init_learning_rate, betas=self.betas, eps=self.eps_adam, weight_decay=self.weight_decay)
@@ -231,13 +234,14 @@ class ProjectionTrainer:
     def initialize_dataloaders(self, input_txt_path):
         inputs, targets, self.image_size = read_input_txt(input_txt_path)
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
-        inputs_norm = torch.from_numpy(inputs_norm).float()
         if self.projection_axis == 'x':
             targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
         elif self.projection_axis == 'y':
             targets_norm = np.expand_dims(targets_norm[:, 1], axis=1)
         else:
-            targets_norm = targets_norm * np.array(self.image_size) / math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
+            targets_norm = targets_norm * np.array(self.image_size) / math.sqrt(
+                self.image_size[0]**2 + self.image_size[1]**2)
+        inputs_norm = torch.from_numpy(inputs_norm).float()
         targets_norm = torch.from_numpy(targets_norm).float()
         self.train_ds = TensorDataset(inputs_norm, targets_norm)
         self.generator = torch.Generator()
@@ -314,8 +318,10 @@ class ProjectionTrainer:
         wandb.define_metric('best_validation_accuracy/iteration')
         wandb.define_metric('least_validation_loss/iteration')
         wandb.define_metric('test_accuracy')
-        wandb.define_metric('mean_test_error')
-        wandb.define_metric('max_test_error')
+        wandb.define_metric('mean_test_pixel_error')
+        wandb.define_metric('max_test_pixel_error')
+        wandb.define_metric('mean_test_distance_error')
+        wandb.define_metric('max_test_distance_error')
         for param_count in range(len(self.optimizer.param_groups)):
             wandb.define_metric('learning_rate_' + str(param_count) + '/iteration', summary='none')
 
@@ -380,15 +386,25 @@ class ProjectionTrainer:
     def save_log_iteration_test(self):
         if self.logging_tool == 'tensorboard':
             writer = self.writer
-            writer.add_scalar('mean_test_error', self.mean_test_error)
-            writer.add_scalar('max_test_error', self.max_test_error)
-            writer.add_scalar('test_accuracy', self.test_accuracy)
+            writer.add_scalar('mean_test_pixel_error', self.mean_test_pixel_error)
+            writer.add_scalar('max_test_pixel_error', self.max_test_pixel_error)
+            writer.add_scalar('test_accuracy_pixel', self.test_accuracy_pixel)
+
+            writer.add_scalar('mean_test_distance_error', self.mean_test_distance_error)
+            writer.add_scalar('max_test_distance_error', self.max_test_distance_error)
+            writer.add_scalar('test_accuracy_distance', self.test_accuracy_distance)
+
+
         elif self.logging_tool == 'wandb':
             wandb.log(
                 {
-                    'mean_test_error': self.mean_test_error,
-                    'max_test_error': self.max_test_error,
-                    'test_accuracy': self.test_accuracy,
+                    'mean_test_pixel_error': self.mean_test_pixel_error,
+                    'max_test_pixel_error': self.max_test_pixel_error,
+                    'test_accuracy_pixel': self.test_accuracy_pixel,
+                    
+                    'mean_test_distance_error': self.mean_test_distance_error,
+                    'max_test_distance_error': self.max_test_distance_error,
+                    'test_accuracy_distance': self.test_accuracy_distance,
                 },
                 step=self.iter_count,
             )
@@ -595,10 +611,11 @@ class ProjectionTrainer:
                 self.model.eval()
                 cum_test_loss = 0
                 cum_abs_diff = 0
-                cum_abs_diff_earth = 0
-                cum_test_loss_accuracy = 0
+                cum_abs_diff_distance = 0
+                cum_test_accuracy_pixel = 0
+                cum_test_accuracy_distance = 0
                 max_diff = 0
-                max_diff_earth = 0
+                self.max_test_distance_error = 0
 
                 for sample in self.test_loader:
                     obj_coords, projection_coord = sample
@@ -625,33 +642,41 @@ class ProjectionTrainer:
                                     self.distance_perp_axis[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0]]
                         dist[i][0] = perp_dist
                         dist[i][1] = along_dist
-                    abs_diffs_earth = torch.linalg.norm(dist, dim=1)
+                    abs_diffs_distance = torch.linalg.norm(dist, dim=1)
+                    hit_count_distance = torch.sum((abs_diffs_distance <= DISTANCE_THRESHOLD_FOR_HIT).to(int))
+                    accuracy_distance = torch.div(hit_count_distance, torch.numel(abs_diffs_distance))
 
-                    abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
-                    hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
-                    accuracy = torch.div(hit_count, torch.numel(abs_diffs))
+                    abs_diffs_pixel = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
+                    hit_count_pixel = torch.sum((abs_diffs_pixel <= self.normalized_hit_thr).to(int))
+                    accuracy_pixel = torch.div(hit_count_pixel, torch.numel(abs_diffs_pixel))
 
-                    cum_test_loss_accuracy += accuracy.item()
+                    cum_test_accuracy_pixel += accuracy_pixel.item()
+                    cum_test_accuracy_distance += accuracy_distance.item()
+
                     cum_test_loss += loss.item()
-                    cum_abs_diff += torch.sum(abs_diffs).item()
-                    cum_abs_diff_earth += torch.sum(abs_diffs_earth).item()
-                    if torch.max(abs_diffs).item() > max_diff:
-                        max_diff = torch.max(abs_diffs).item()
-                    if torch.max(abs_diffs_earth).item() > max_diff_earth:
-                        max_diff_earth = torch.max(abs_diffs_earth).item()
+                    cum_abs_diff += torch.sum(abs_diffs_pixel).item()
+                    cum_abs_diff_distance += torch.sum(abs_diffs_distance).item()
+                    if torch.max(abs_diffs_pixel).item() > max_diff:
+                        max_diff = torch.max(abs_diffs_pixel).item()
+                    if torch.max(abs_diffs_distance).item() > self.max_test_distance_error:
+                        self.max_test_distance_error = torch.max(abs_diffs_distance).item()
 
 
                 self.test_loss = cum_test_loss / len(self.test_loader)
                 print('Test loss {:.6f}'.format(self.test_loss))
-                self.test_accuracy = cum_test_loss_accuracy / len(self.test_loader)
-                print('Test accuracy: ({:.6f})'.format(self.test_accuracy))
-                self.mean_test_error = (cum_abs_diff * self.related_cam_dim) / (len(self.test_loader) * self.batch_size)
-                print('Mean test pixel error: ({:.6f})'.format(self.mean_test_error))
-                self.max_test_error = max_diff * self.related_cam_dim
-                print('Max test pixel error: ({:.6f})'.format(self.max_test_error))
-                self.mean_test_error_earth = cum_abs_diff_earth / (len(self.test_loader) * self.batch_size)
-                print('Mean test distance error: ({:.6f})'.format(self.mean_test_error_earth))
-                print('Max test distance error: ({:.6f})'.format(max_diff_earth))
+
+                self.test_accuracy_pixel = cum_test_accuracy_pixel / len(self.test_loader)
+                print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
+                self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / (len(self.test_loader) * self.batch_size)
+                print('Mean test pixel error: ({:.6f})'.format(self.mean_test_pixel_error))
+                self.max_test_pixel_error = max_diff * self.related_cam_dim
+                print('Max test pixel error: ({:.6f})'.format(self.max_test_pixel_error))
+
+                self.test_accuracy_distance = cum_test_accuracy_distance / len(self.test_loader)
+                print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
+                self.mean_test_distance_error = cum_abs_diff_distance / (len(self.test_loader) * self.batch_size)
+                print('Mean test distance error: ({:.6f})'.format(self.mean_test_distance_error))
+                print('Max test distance error: ({:.6f})'.format(self.max_test_distance_error))
 
                 self.save_log_iteration_test()
                 if self.logging_tool == 'tensorboard':
