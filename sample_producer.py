@@ -57,7 +57,7 @@ def cotan(radians):
 
 def connect_and_draw_points(image, points, color):
     if len(points) == 1:
-        cv2.drawMarker(image, np.round(proj_mid[0]).astype(int), color=color, markerType=cv2.MARKER_STAR,
+        cv2.drawMarker(image, np.round(points[0]).astype(int), color=color, markerType=cv2.MARKER_STAR,
                        thickness=LINE_THICKNESS)
     elif len(points) > 1:
         for i in range(len(points)):
