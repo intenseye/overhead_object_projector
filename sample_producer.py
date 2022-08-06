@@ -335,10 +335,10 @@ print('Sample collection is started!')
 
 for x in tqdm(np.logspace(np.log10(X_SEARCH_MIN), np.log10(X_SEARCH_MAX), num=X_SEARCH_COUNT)):
     for y_hor in np.arange(Y_HOR_SEARCH_MIN, Y_HOR_SEARCH_MAX, SEARCH_DISTANCE_STEP):
-        for y_ver in np.arange(Y_VER_SEARCH_MIN, X_VER_SEARCH_MAX, SEARCH_DISTANCE_STEP):
+        for y_ver in np.arange(Y_VER_SEARCH_MIN, Y_VER_SEARCH_MAX, SEARCH_DISTANCE_STEP):
             rotate_angle = random.uniform(ROTATE_ANGLE_MIN, ROTATE_ANGLE_MAX)
             if DEMO_MODE:
-                point_estimator.set_object_location(y_ver=random.uniform(Y_VER_SEARCH_MIN, X_VER_SEARCH_MAX),
+                point_estimator.set_object_location(y_ver=random.uniform(Y_VER_SEARCH_MIN, Y_VER_SEARCH_MAX),
                                                     y_hor=random.uniform(Y_HOR_SEARCH_MIN, Y_HOR_SEARCH_MAX),
                                                     x=random.uniform(X_SEARCH_MIN, X_SEARCH_MAX),
                                                     rotate_angle=rotate_angle)
