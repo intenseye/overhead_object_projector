@@ -226,9 +226,8 @@ class ProjectionTrainer:
 
     def load_distance_map(self, distance_map_path):
         with open(distance_map_path, 'rb') as file:
-            self.distance_along_axis, self.distance_perp_axis, self.dist_map_top_left_coord = pickle.load(file)
-            self.distance_along_axis = torch.from_numpy(self.distance_along_axis).float().to(self.device)
-            self.distance_perp_axis = torch.from_numpy(self.distance_perp_axis).float().to(self.device)
+            self.pixel_world_coords, self.dist_map_top_left_coord = pickle.load(file)
+            self.pixel_world_coords = torch.from_numpy(self.pixel_world_coords[:, :, [0, 2]]).float().to(self.device)
             self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
 
     def initialize_dataloaders(self, input_txt_path):
@@ -636,12 +635,9 @@ class ProjectionTrainer:
                     denorm_pred_shifted = denorm_pred - self.dist_map_top_left_coord
                     dist = torch.zeros([denorm_output_shifted.shape[0], 2], dtype=torch.float32, device=self.device)
                     for i in range(denorm_output_shifted.shape[0]):
-                        along_dist = self.distance_along_axis[denorm_output_shifted[i][1]] - self.distance_along_axis[
-                            denorm_pred_shifted[i][1]]
-                        perp_dist = self.distance_perp_axis[denorm_output_shifted[i][1], denorm_output_shifted[i][0]] - \
-                                    self.distance_perp_axis[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0]]
-                        dist[i][0] = perp_dist
-                        dist[i][1] = along_dist
+                        dist[i] = self.pixel_world_coords[denorm_output_shifted[i][1], denorm_output_shifted[i][0], :] - \
+                                  self.pixel_world_coords[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0], :]
+
                     abs_diffs_distance = torch.linalg.norm(dist, dim=1)
                     hit_count_distance = torch.sum((abs_diffs_distance <= DISTANCE_THRESHOLD_FOR_HIT).to(int))
                     accuracy_distance = torch.div(hit_count_distance, torch.numel(abs_diffs_distance))
@@ -691,9 +687,9 @@ if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver", default='manual')
     parser.add_argument("--input_txt_path", help="Path to input txt file.",
-                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_dev1.txt')
+                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected.txt')
     parser.add_argument("--distance_map_path", help="Path distance map.",
-                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_w_roll_temp.pickle')
+                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_corrected.pickle')
     parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y', 'both'], default='both')
 
     args = parser.parse_args()

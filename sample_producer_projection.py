@@ -9,16 +9,15 @@ from tqdm import tqdm
 import pickle
 
 DEMO_MODE = False
+DRAW_ENABLED = False
 FIXED_SEED = True
 FIXED_SEED_NUM = 35
-DRAW_ENABLED = True
 LINE_THICKNESS = 1
 GREEN_COLOR = (0, 255, 0)
 YELLOW_COLOR = (255, 255, 0)
 RED_COLOR = (255, 0, 0)
 WHITE_COLOR = (255, 255, 255)
 PAUSE_FIG_TIME = 0.01
-
 
 CAM_FOV_HOR = 60  # in degrees
 CAM_PIXEL_WIDTH = 1280  # number of horizontal pixel
@@ -28,14 +27,18 @@ CAM_REGION_EXPAND_RATIO = 3.0  # Odd integer number is advised.
 RADIAL_DIST_ENABLED = True
 K_1 = -0.05
 K_2 = 0.0
-RANDOM_DEVIATION_ENABLED = False
-DEVIATON_SIGMA = 5
+RANDOM_DEVIATION_ENABLED = True
+DEVIATON_SIGMA = 1
 ROTATE_ANGLE_MIN = -10
 ROTATE_ANGLE_MAX = 10
 
 YAW_CAM = -15  # y dimension positive is clockwise (in degrees)
 PITCH_CAM = -10  # x dimension positive is upward (in degrees)
 ROLL_CAM = 0  # z dimension positive is clockwise (in degrees)
+
+CAM_Z = 0
+CAM_Y = -8.0
+CAM_X = -5.0
 
 OBJ_HEIGHT = 2.5
 OBJ_WIDTH = 2.0
@@ -44,20 +47,16 @@ OBJ_LENGTH = 1.0
 Z_SEARCH_MIN = 20.0
 Z_SEARCH_MAX = 50.0
 Z_SEARCH_COUNT = 50
-
 X_SEARCH_MIN = -40.0
 X_SEARCH_MAX = 40.0
-
 Y_SEARCH_MIN = -1.25
 Y_SEARCH_MAX = -10.0
 SEARCH_DISTANCE_STEP = 0.5
 
-CAM_Z = 0
-CAM_Y = -8.0
-CAM_X = -5.0
-
 EXPORT_TO_TXT: bool = True
-PATH_TO_OUTPUT_FILE = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_new.txt'
+PATH_TO_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/overhead_object_projector'
+PROJECTION_DATA_PATH = 'inputs_outputs_corrected.txt'
+AUXILIARY_DATA_PATH = 'auxiliary_data_corrected.pickle'
 
 
 def connect_and_draw_points(image, points, color):
@@ -83,8 +82,12 @@ def cotan(radians):
 def apply_radial_dist(point, cx, cy):
     norm_dist_x, norm_dist_y = (np.array(point) - np.array((cx, cy))) / np.array((cx, cy))
     r2 = norm_dist_x ** 2 + norm_dist_y ** 2
-    distorted_point = np.array((norm_dist_x * (1 + K_1 * r2 + K_2 * r2**2), norm_dist_y * (1 + K_1 * r2 + K_2 * r2**2))) * np.array(
-        (cx, cy)) + np.array((cx, cy))
+    distorted_point = np.array([-10000, -10000])
+    distortion_coeff_x = 1 + K_1 * r2 + K_2 * r2**2
+    distortion_coeff_y = 1 + K_1 * r2 + K_2 * r2 ** 2
+    if distortion_coeff_x > 0 and distortion_coeff_y > 0:
+        distorted_point = np.array((norm_dist_x * distortion_coeff_x, norm_dist_y * distortion_coeff_y)) * np.array(
+            (cx, cy)) + np.array((cx, cy))
     return distorted_point
 
 
@@ -112,11 +115,10 @@ class PointEstimatorProjection:
         self.extended_y_start = -int((CAM_REGION_EXPAND_RATIO - 1) * CAM_PIXEL_HEIGHT / 2)
         self.extended_x_start = -int((CAM_REGION_EXPAND_RATIO - 1) * CAM_PIXEL_WIDTH / 2)
         self.top_left_pixel_coord = np.array([self.extended_x_start, self.extended_y_start])
+        self.pixel_world_coords = np.ones((self.extended_height, self.extended_width, 3), dtype=float) * sys.float_info.max
 
-        self.distance_along_axis = np.ones(self.extended_height, dtype=float) * sys.float_info.max  #                                   (d_a^j in paper)
-        self.distance_perp_axis = np.ones((self.extended_height, self.extended_width), dtype=float) * sys.float_info.max
-
-        self.P = self.calc_projection_matrix()
+        self.calc_projection_matrix()
+        self.calc_pixel_world_coordinates()
 
     def calc_camera_calibration_matrix(self):
         focal_length = cotan(math.radians(CAM_FOV_HOR / 2)) * self.cx
@@ -210,8 +212,8 @@ class PointEstimatorProjection:
         # Coordinates of the camera centre
         camC = np.array([[0.0], [0.0], [0.0]])
 
-        P = np.matmul(np.matmul(K, R), np.concatenate((np.eye(3), -camC), axis=1))
-        return P
+        self.P = np.matmul(np.matmul(K, R), np.concatenate((np.eye(3), -camC), axis=1))
+        self.P_inv = np.matmul(np.transpose(self.P), np.linalg.inv(np.matmul(self.P, np.transpose(self.P))))
 
     def calc_pixel_coord(self, relative_object_loc):
         # Project (Xw, Yw, Zw, 0) into pixel coordinate system
@@ -220,41 +222,44 @@ class PointEstimatorProjection:
         x_norm = np.squeeze((x_pixel / x_pixel[2][0])[:-1])
         return x_norm
 
-    def calc_pixel_distances(self):
+    def calc_pixel_world_coordinates(self):
+
         for ind_j, j in enumerate(range(self.extended_y_start, self.extended_height + self.extended_y_start)):
-            pixel_ver_angle = self.alpha_in_degrees_ver - (j - self.cy + HALF_PIXEL_SIZE) * self.IFOV  #                            (delta_j in paper)
-            if pixel_ver_angle < 90:
-                self.distance_along_axis[ind_j] = self.z_ver * (math.tan(math.radians(self.alpha_in_degrees_ver)) - math.tan(math.radians(pixel_ver_angle)))
-                distance_to_center = self.z_ver / math.cos(math.radians(pixel_ver_angle))
-                for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
-                    zeta_angle = (i - self.cx + HALF_PIXEL_SIZE) * self.IFOV  #                                                     (zeta_i in paper)
-                    self.distance_perp_axis[ind_j, ind_i] = distance_to_center * math.tan(math.radians(zeta_angle))
+            for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
+                unit_ray_loc = np.matmul(self.P_inv, np.array([i, j, 1]))
+                if unit_ray_loc[1] > 0:  # means ray is traveling in downward direction
+                    unit_ray_multiplier = -CAM_Y / unit_ray_loc[1]
+                    self.pixel_world_coords[ind_j, ind_i, :] = unit_ray_multiplier * unit_ray_loc[:3] + np.array([CAM_X, CAM_Y, CAM_Z])
 
     def get_relative_world_coords(self, object_x, object_y, object_z, rotate_angle=None):
 
-        object_rel_left = [object_x - OBJ_LENGTH / 2 - CAM_X]
-        object_rel_right = [object_x + OBJ_LENGTH / 2 - CAM_X]
+        rotate_angle = math.radians(rotate_angle)
+        rot_cos = math.cos(rotate_angle)
+        rot_sin = math.sin(rotate_angle)
+
+        rot_length_inc = (OBJ_LENGTH / 2) * rot_cos + (OBJ_WIDTH / 2) * rot_sin
+        rot_length_dec = (OBJ_LENGTH / 2) * rot_cos - (OBJ_WIDTH / 2) * rot_sin
+
+        rot_width_inc = (OBJ_WIDTH / 2) * rot_cos + (OBJ_LENGTH / 2) * rot_sin
+        rot_width_dec = (OBJ_WIDTH / 2) * rot_cos - (OBJ_LENGTH / 2) * rot_sin
 
         object_rel_top = [object_y - OBJ_HEIGHT / 2 - CAM_Y]
         object_rel_bottom = [object_y + OBJ_HEIGHT / 2 - CAM_Y]
 
-        object_rel_front = [object_z - OBJ_WIDTH / 2 - CAM_Z]
-        object_rel_back = [object_z + OBJ_WIDTH / 2 - CAM_Z]
+        self.object_tlf = [[object_x - rot_length_inc - CAM_X], object_rel_top, [object_z - rot_width_dec - CAM_Z], [1]]
+        self.object_tlb = [[object_x - rot_length_dec - CAM_X], object_rel_top, [object_z + rot_width_inc - CAM_Z], [1]]
+        self.object_trf = [[object_x + rot_length_dec - CAM_X], object_rel_top, [object_z - rot_width_inc - CAM_Z], [1]]
+        self.object_trb = [[object_x + rot_length_inc - CAM_X], object_rel_top, [object_z + rot_width_dec - CAM_Z], [1]]
 
-        self.object_tlf = [object_rel_left, object_rel_top, object_rel_front, [1]]
-        self.object_tlb = [object_rel_left, object_rel_top, object_rel_back, [1]]
-        self.object_trf = [object_rel_right, object_rel_top, object_rel_front, [1]]
-        self.object_trb = [object_rel_right, object_rel_top, object_rel_back, [1]]
+        self.object_blf = [[object_x - rot_length_inc - CAM_X], object_rel_bottom, [object_z - rot_width_dec - CAM_Z], [1]]
+        self.object_blb = [[object_x - rot_length_dec - CAM_X], object_rel_bottom, [object_z + rot_width_inc - CAM_Z], [1]]
+        self.object_brf = [[object_x + rot_length_dec - CAM_X], object_rel_bottom, [object_z - rot_width_inc - CAM_Z], [1]]
+        self.object_brb = [[object_x + rot_length_inc - CAM_X], object_rel_bottom, [object_z + rot_width_dec - CAM_Z], [1]]
 
-        self.object_blf = [object_rel_left, object_rel_bottom, object_rel_front, [1]]
-        self.object_blb = [object_rel_left, object_rel_bottom, object_rel_back, [1]]
-        self.object_brf = [object_rel_right, object_rel_bottom, object_rel_front, [1]]
-        self.object_brb = [object_rel_right, object_rel_bottom, object_rel_back, [1]]
-
-        self.proj_lf = [object_rel_left, [0 - CAM_Y], object_rel_front, [1]]
-        self.proj_lb = [object_rel_left, [0 - CAM_Y], object_rel_back, [1]]
-        self.proj_rf = [object_rel_right, [0 - CAM_Y], object_rel_front, [1]]
-        self.proj_rb = [object_rel_right, [0 - CAM_Y], object_rel_back, [1]]
+        self.proj_lf = [[object_x - rot_length_inc - CAM_X], [0 - CAM_Y], [object_z - rot_width_dec - CAM_Z], [1]]
+        self.proj_lb = [[object_x - rot_length_dec - CAM_X], [0 - CAM_Y], [object_z + rot_width_inc - CAM_Z], [1]]
+        self.proj_rf = [[object_x + rot_length_dec - CAM_X], [0 - CAM_Y], [object_z - rot_width_inc - CAM_Z], [1]]
+        self.proj_rb = [[object_x + rot_length_inc - CAM_X], [0 - CAM_Y], [object_z + rot_width_dec - CAM_Z], [1]]
         self.proj_center = [[object_x - CAM_X], [0 - CAM_Y], [object_z - CAM_Z], [1]]
 
     def get_pixel_points(self):
@@ -372,10 +377,12 @@ for z in tqdm(np.logspace(np.log10(Z_SEARCH_MIN), np.log10(Z_SEARCH_MAX), num=Z_
 
 if (not DEMO_MODE) and EXPORT_TO_TXT:
     export_data = np.hstack((inputs, outputs, cam_width_heights))
-    dir_path = os.path.dirname(PATH_TO_OUTPUT_FILE)
-    path_to_auxiliary_data = os.path.join(dir_path, 'auxiliary_data_w_roll_temp.pickle')
+    dir_path = PATH_TO_OUTPUT_FOLDER
+    path_to_auxiliary_data = os.path.join(dir_path, AUXILIARY_DATA_PATH)
+    path_to_projection_data = os.path.join(dir_path, PROJECTION_DATA_PATH)
+
     os.makedirs(dir_path, exist_ok=True)
     with open(path_to_auxiliary_data, 'wb') as handle:
-        pickle.dump([point_estimator.distance_along_axis, point_estimator.distance_perp_axis, point_estimator.top_left_pixel_coord], handle, protocol=pickle.HIGHEST_PROTOCOL)
-    np.savetxt(PATH_TO_OUTPUT_FILE, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height cam_width cam_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
-print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))
+        pickle.dump([point_estimator.pixel_world_coords, point_estimator.top_left_pixel_coord], handle, protocol=pickle.HIGHEST_PROTOCOL)
+    np.savetxt(path_to_projection_data, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height cam_width cam_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
+    print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))

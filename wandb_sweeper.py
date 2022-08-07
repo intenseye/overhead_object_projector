@@ -22,8 +22,8 @@ def wandb_sweep_runner():
         convert_file.write('param_sweep = ')
         convert_file.write(json.dumps(params))
 
-    input_txt_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_w_roll_dev1.txt'
-    distance_map_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_w_roll_dev1.pickle'
+    input_txt_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected.txt'
+    distance_map_path = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_corrected.pickle'
     projection_axis = 'both'
     driver = 'wandb'
 
