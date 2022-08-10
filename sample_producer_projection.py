@@ -256,7 +256,7 @@ class PointEstimatorProjection:
         '''
         for ind_j, j in enumerate(range(self.extended_y_start, self.extended_height + self.extended_y_start)):
             for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
-                unit_ray_loc = np.matmul(self.P_inv, np.array([i, j, 1]))
+                unit_ray_loc = np.matmul(self.P_inv, np.array([i, j, 1]))  # TODO: We may need to send ray from np.array([i+0.5, j+0.5, 1]
                 if unit_ray_loc[1] > 0:  # means ray is traveling in downward direction
                     unit_ray_multiplier = -CAM_Y / unit_ray_loc[1]  # Projected elevation is 0 which means -CAM_Y for camera centered coordinate system.
                     self.pixel_world_coords[ind_j, ind_i, :] = unit_ray_multiplier * unit_ray_loc[:3] + np.array([CAM_X, CAM_Y, CAM_Z])
@@ -333,7 +333,7 @@ class PointEstimatorProjection:
             point_p_cen = apply_radial_dist(point_p_cen, self.cx, self.cy)
 
         # Find limits of the bbox
-        bbox_bottom = max(point_o_blf[1], point_o_blb[1], point_o_brf[1], point_o_brb[1])
+        bbox_bottom = max(point_o_blf[1], point_o_blb[1], point_o_brf[1], point_o_brb[1])  # TODO not sure that in between points can get maximum value. If not we may need to prove it.
         bbox_top = min(point_o_tlf[1], point_o_tlb[1], point_o_trf[1], point_o_trb[1])
         bbox_right = max(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0], point_o_brf[0], point_o_brb[0])
         bbox_left = min(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0], point_o_brf[0], point_o_brb[0])
@@ -355,9 +355,10 @@ class PointEstimatorProjection:
             bbox_br = [bbox_br[0] + right_dev, bbox_br[1] + bottom_dev]
             bbox_bl = [bbox_bl[0] + left_dev, bbox_bl[1] + bottom_dev]
 
-        bbox_points = [bbox_tl, bbox_tr, bbox_br, bbox_bl]
+        bbox_points = [bbox_tl, bbox_tr, bbox_br, bbox_bl]  # TODO: We may need to convert to integer to simulate object detector. (Is there any floating point bbox detector in literature?)
+
         proj_points = [point_p_lb, point_p_rb, point_p_rf, point_p_lf]
-        proj_mid_point = [point_p_cen]
+        proj_mid_point = [point_p_cen]  # TODO: Not sure that we need to convert to integer. I believe we are able to select a floating point GT using a tool.
 
         # Gets the facade points for visual representation
         front_facade = [point_o_tlf, point_o_trf, point_o_brf, point_o_blf]
