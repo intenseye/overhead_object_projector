@@ -232,10 +232,13 @@ class ProjectionTrainer:
         train_ds = Subset(dataset, train_indices)
         return train_ds, val_ds, test_ds
 
+    # Load distance map and top-left coordinates from the pickle file loaded.
     def load_distance_map(self, distance_map_path):
         with open(distance_map_path, 'rb') as file:
             self.pixel_world_coords, self.dist_map_top_left_coord = pickle.load(file)
+            # Since the elevation is fixed in entire area, only the z and x dimension of the distance map is used.
             self.pixel_world_coords = torch.from_numpy(self.pixel_world_coords[:, :, [0, 2]]).float().to(self.device)
+            # Since we extended the original camera pixel dimensions, we need to use the new top-left location of the new camera.
             self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
 
     def initialize_dataloaders(self, input_txt_path):
