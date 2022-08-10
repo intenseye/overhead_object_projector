@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-CONSTANT_STD = 0.01
+CONSTANT_STD = 0.01  # standard deviation value used for normally-distributed weight initialization
 
 
 def init_with_normal(modules):

@@ -18,28 +18,30 @@ from argparse import ArgumentParser
 from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 
 
-DEVICE = "cuda:0"  # 'cuda:0' or 'cpu'
-LOGGING_TOOL = 'wandb'  # 'wandb' or 'tensorboard'
-NUM_WORKERS = 0
-PIXEL_THRESHOLD_FOR_HIT = 2
-DISTANCE_THRESHOLD_FOR_HIT = 0.5  # in meters
-FIXED_SEED_NUM = 35
-VAL_COUNT_IN_EPOCH = 1
-LOSS_DECREASE_COUNT = 4
-LOSS_DECREASE_GAMMA = 0.1
-LOSS_PATIENCE = 2
+DEVICE = "cuda:0"  # Device ('cuda:0' or 'cpu')
+LOGGING_TOOL = 'wandb'  # logging tool ('wandb' or 'tensorboard')
+NUM_WORKERS = 0  # Number of workers to load data
+PIXEL_THRESHOLD_FOR_HIT = 2.0  # Hit distance threshold between the prediction and ground truth (in pixels)
+DISTANCE_THRESHOLD_FOR_HIT = 0.5  # Hit distance threshold between the prediction and ground truth (in meters)
+FIXED_SEED_NUM = 35  # Seed number
+VAL_COUNT_IN_EPOCH = 1  # Number of validation step in each epoch
+LOSS_DECREASE_COUNT = 4   # Number of loss decreasing StepLR used for step type schedulers
+LOSS_DECREASE_GAMMA = 0.1  # Gamma value used for StepLR type schedulers
+LOSS_PATIENCE = 2  # patience value used for ReduceLROnPlateau type schedulers
 MAIN_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/'
-USE_BATCH_NORM = False
-BATCH_MOMENTUM = 0.1
-INIT_W_NORMAL = False
+USE_BATCH_NORM = False  # Enables batch normalization
+BATCH_MOMENTUM = 0.1  # Batch momentum value used for the batch normalization layers
+INIT_W_NORMAL = False  # Enables normally distributed weight initialization
 
 
+# To preserve reproducibility seed worker is used. Taken from (https://pytorch.org/docs/stable/notes/randomness.html)
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 
+# Convert strings to booleans
 def str2bool(bool_argument):
     if bool_argument.lower() == "true":
         return True
@@ -49,6 +51,7 @@ def str2bool(bool_argument):
         raise ValueError
 
 
+# Read input and target data produced
 def read_input_txt(input_txt_path):
     with open(input_txt_path, 'r') as f:
         input_list = []
@@ -56,20 +59,22 @@ def read_input_txt(input_txt_path):
         image_size = None
         for rows_id, rows in enumerate(raw.strip().split() for raw in f):
             if rows_id > 0:
-                input_list.append(rows[:4])
-                output_list.append(rows[4:6])
+                input_list.append(rows[:4])  # order of inputs: x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height
+                output_list.append(rows[4:6])  # order of outputs: proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom
             if rows_id == 1:
-                image_size = np.array(rows[6:]).astype(np.float32)
+                image_size = np.array(rows[6:]).astype(np.float32)  # order of image_size:  cam_width cam_height
 
     return np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32), image_size
 
 
+# Normalize inputs and targets w.r.t the related dimension of the image
 def normalize_points(inputs, targets, image_size):
     inputs_norm = np.array(inputs / np.append(image_size, image_size)).astype(np.float32)
     targets_norm = np.array(targets / image_size).astype(np.float32)
     return inputs_norm, targets_norm
 
 
+# MSE loss class
 class Criterion_mse_loss(nn.Module):
     def __init__(self):
         super(Criterion_mse_loss, self).__init__()
@@ -80,8 +85,9 @@ class Criterion_mse_loss(nn.Module):
         return loss
 
 
+# n^th power loss class (e.g. for MSE n=2)
 class Criterion_nth_power_loss(nn.Module):
-    def __init__(self, power_term=2):
+    def __init__(self, power_term=2):  # It is advised to use positive even integer for power_term
         super(Criterion_nth_power_loss, self).__init__()
         self.power_term = power_term
 
@@ -95,12 +101,13 @@ class Criterion_nth_power_loss(nn.Module):
         return power_loss.mean()
 
 
+# Projection trainer class
 class ProjectionTrainer:
     def __init__(self, driver, input_txt_path, distance_map_path, projection_axis):
         print('Overhead object projection training is started.')
         self.projection_axis = projection_axis
         self.driver = driver
-        self.network_size = param_sweep['network_size']
+        self.network_size = param_sweep['network_size']  # Defines the size of the networks.
 
         RegressionModel = None
         if self.network_size == 'xl':
@@ -116,35 +123,35 @@ class ProjectionTrainer:
         elif self.network_size == 'linear':
             RegressionModel = RegressionModelLinear
 
-        self.batch_size = int(param_sweep['batch_size'])
-        self.activation = param_sweep['activation']
-        self.loss_function = param_sweep['loss_function_reg']
+        self.batch_size = int(param_sweep['batch_size'])  # Defines the batch size
+        self.activation = param_sweep['activation']  # Defines the activation function to be used in hidden layers of networks
+        self.loss_function = param_sweep['loss_function_reg']  # Defines the loss function
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
         print('Model and log time stamp folder: ' + str(time_stamp))
         self.device = torch.device(DEVICE)
         self.logging_tool = LOGGING_TOOL
         self.num_workers = NUM_WORKERS
-        self.model_output_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'models', self.driver, time_stamp)
-        self.log_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'logs', self.driver, time_stamp)
+        self.model_output_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'models', self.driver, time_stamp)  # Model output folder
+        self.log_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'logs', self.driver, time_stamp)  # Log folder
 
-        self.tuning_method = param_sweep['tuning_method']
-        self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])
-        self.validation_ratio = float(param_sweep['validation_ratio'])
-        self.test_ratio = float(param_sweep['test_ratio'])
+        self.tuning_method = param_sweep['tuning_method']  # Tuning method ('loss' or 'accuracy')
+        self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
+        self.validation_ratio = float(param_sweep['validation_ratio'])  # Validation ratio to be used in data splitting
+        self.test_ratio = float(param_sweep['test_ratio'])  # Test ratio to be used in data splitting
 
-        self.zero_mean_enabled = str2bool(param_sweep['zero_mean_enabled'])
-        self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])
-        self.max_epoch = int(float(param_sweep['max_epoch']))
-        self.init_learning_rate = float(param_sweep['init_learning_rate'])
-        self.scheduler_type = param_sweep['scheduler_type']
-        self.betas = (float(param_sweep['betas_0']),
+        self.zero_mean_enabled = str2bool(param_sweep['zero_mean_enabled'])  # Subtract the mean values from input data (Not implemented yet. Maybe no needed.)
+        self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])  # Enables mixed precision operations.
+        self.max_epoch = int(float(param_sweep['max_epoch']))  # Maximum number of training epoch.
+        self.init_learning_rate = float(param_sweep['init_learning_rate'])  # Initial learning rate (except for OneCycleLR. OneCycleLR uses this value as the maximum learning rate).
+        self.scheduler_type = param_sweep['scheduler_type']  # The scheduler type. ('reduce_plateau', 'lambda', 'one_cycle', 'step')
+        self.betas = (float(param_sweep['betas_0']),  # Beta values used in AdamW optimizer.
                       float(param_sweep['betas_1']))
-        self.weight_decay = float(param_sweep['weight_decay'])
-        self.eps_adam = float(param_sweep['eps_adam'])
+        self.weight_decay = float(param_sweep['weight_decay'])  # weight decay value used in AdamW optimizer.
+        self.eps_adam = float(param_sweep['eps_adam'])  # epsilon value used in AdamW optimizer.
 
         if str(self.device) != 'cpu':
             torch.cuda.set_device(self.device)
-        # seed
+        # fixed seed operation for reproducibility
         if self.fixed_partition_seed:
             os.environ['PYTHONHASHSEED'] = str(FIXED_SEED_NUM)
             random.seed(FIXED_SEED_NUM)
@@ -154,6 +161,7 @@ class ProjectionTrainer:
             torch.cuda.manual_seed_all(FIXED_SEED_NUM)
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
+        # folder creation if needed
         if not os.path.exists(self.model_output_folder_path):
             os.makedirs(self.model_output_folder_path)
             with open(os.path.join(self.model_output_folder_path, 'params.json'), 'w') as convert_file:
@@ -690,7 +698,7 @@ if __name__ == '__main__':
                         default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected.txt')
     parser.add_argument("--distance_map_path", help="Path distance map.",
                         default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_corrected.pickle')
-    parser.add_argument("--projection_axis", help="Indicates axis of the projection", choices=['x', 'y', 'both'], default='both')
+    parser.add_argument("--projection_axis", help="Indicates axis of the projection estimation", choices=['x', 'y', 'both'], default='both')
 
     args = parser.parse_args()
     driver = args.driver

@@ -427,5 +427,5 @@ if (not DEMO_MODE) and EXPORT:
     os.makedirs(dir_path, exist_ok=True)
     with open(path_to_auxiliary_data, 'wb') as handle:
         pickle.dump([point_estimator.pixel_world_coords, point_estimator.top_left_pixel_coord], handle, protocol=pickle.HIGHEST_PROTOCOL)
-    np.savetxt(path_to_projection_data, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height cam_width cam_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom', fmt='%1.6e')  # X is an array
+    np.savetxt(path_to_projection_data, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom cam_width cam_height', fmt='%1.6e')  # X is an array
     print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))
