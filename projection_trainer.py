@@ -34,15 +34,19 @@ BATCH_MOMENTUM = 0.1  # Batch momentum value used for the batch normalization la
 INIT_W_NORMAL = False  # Enables normally distributed weight initialization
 
 
-# To preserve reproducibility seed worker is used. Taken from (https://pytorch.org/docs/stable/notes/randomness.html)
 def seed_worker(worker_id):
+    '''
+    To preserve reproducibility seed worker is used. Taken from (https://pytorch.org/docs/stable/notes/randomness.html)
+    '''
     worker_seed = torch.initial_seed() % 2 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 
-# Convert strings to booleans
 def str2bool(bool_argument):
+    '''
+    Convert strings to booleans
+    '''
     if bool_argument.lower() == "true":
         return True
     elif bool_argument.lower() == "false":
@@ -51,8 +55,10 @@ def str2bool(bool_argument):
         raise ValueError
 
 
-# Read input and target data produced
 def read_input_txt(input_txt_path):
+    '''
+    Read input and target data produced
+    '''
     with open(input_txt_path, 'r') as f:
         input_list = []
         output_list = []
@@ -67,15 +73,19 @@ def read_input_txt(input_txt_path):
     return np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32), image_size
 
 
-# Normalize inputs and targets w.r.t the related dimension of the image
 def normalize_points(inputs, targets, image_size):
+    '''
+    Normalize inputs and targets w.r.t the related dimension of the image
+    '''
     inputs_norm = np.array(inputs / np.append(image_size, image_size)).astype(np.float32)
     targets_norm = np.array(targets / image_size).astype(np.float32)
     return inputs_norm, targets_norm
 
 
-# MSE loss class
 class Criterion_mse_loss(nn.Module):
+    '''
+    MSE loss class
+    '''
     def __init__(self):
         super(Criterion_mse_loss, self).__init__()
         self.loss = nn.MSELoss()
@@ -85,8 +95,10 @@ class Criterion_mse_loss(nn.Module):
         return loss
 
 
-# n^th power loss class (e.g. for MSE n=2)
 class Criterion_nth_power_loss(nn.Module):
+    '''
+    n^th power loss class (e.g. for MSE n=2)
+    '''
     def __init__(self, power_term=2):  # It is advised to use positive even integer for power_term
         super(Criterion_nth_power_loss, self).__init__()
         self.power_term = power_term
@@ -101,8 +113,10 @@ class Criterion_nth_power_loss(nn.Module):
         return power_loss.mean()
 
 
-# Projection trainer class
 class ProjectionTrainer:
+    '''
+    Projection trainer class
+    '''
     def __init__(self, driver, input_txt_path, distance_map_path, projection_axis):
         print('Overhead object projection training is started.')
         self.projection_axis = projection_axis
@@ -216,6 +230,9 @@ class ProjectionTrainer:
         self.best_model_path = None
 
     def dataset_splitter(self, dataset):
+        '''
+        Splits the dataset into training validation and test parts
+        '''
 
         input_size = len(dataset)
         val_input_size = int(input_size * self.validation_ratio)
@@ -232,8 +249,10 @@ class ProjectionTrainer:
         train_ds = Subset(dataset, train_indices)
         return train_ds, val_ds, test_ds
 
-    # Load distance map and top-left coordinates from the pickle file loaded.
     def load_distance_map(self, distance_map_path):
+        '''
+        Load distance map and top-left coordinates from the pickle file loaded.
+        '''
         with open(distance_map_path, 'rb') as file:
             self.pixel_world_coords, self.dist_map_top_left_coord = pickle.load(file)
             # Since the elevation is fixed in entire area, only the z and x dimension of the distance map is used.
@@ -242,6 +261,9 @@ class ProjectionTrainer:
             self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
 
     def initialize_dataloaders(self, input_txt_path):
+        '''
+        Initialize the data loader after the normalization operation
+        '''
         inputs, targets, self.image_size = read_input_txt(input_txt_path)
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
         if self.projection_axis == 'x':
@@ -249,6 +271,9 @@ class ProjectionTrainer:
         elif self.projection_axis == 'y':
             targets_norm = np.expand_dims(targets_norm[:, 1], axis=1)
         else:
+            # Since the normalized distance (normalized coordinates) does not indicate the same amount of distance for
+            # different dimensions of the cameras whose aspect ratio other than 1, we need to re-normalize them by
+            # considering the pixel height and widths.
             targets_norm = targets_norm * np.array(self.image_size) / math.sqrt(
                 self.image_size[0]**2 + self.image_size[1]**2)
         inputs_norm = torch.from_numpy(inputs_norm).float()
@@ -309,6 +334,9 @@ class ProjectionTrainer:
         )
 
     def initialize_wandb(self, folder_name):
+        '''
+        Initialize wandb (Weights & Biases) logging
+        '''
         config_dict = param_sweep
         self.wandb_run = wandb.init(
             project='overhead_object_projection',
@@ -324,7 +352,8 @@ class ProjectionTrainer:
         wandb.define_metric('training_loss/iteration', summary='none')
         wandb.define_metric('validation_loss/iteration', summary='min')
         wandb.define_metric('validation_accuracy/iteration', summary='max')
-        # best_validation_accuracy or least_validation_loss used as the optimization objective in Bayesian search
+        # best_validation_accuracy or least_validation_loss used as the optimization objective in Bayesian search.
+        # best_validation_accuracy is non-decreasing and least_validation_loss is non-increasing metrics over time.
         wandb.define_metric('best_validation_accuracy/iteration')
         wandb.define_metric('least_validation_loss/iteration')
         wandb.define_metric('test_accuracy')
@@ -336,6 +365,9 @@ class ProjectionTrainer:
             wandb.define_metric('learning_rate_' + str(param_count) + '/iteration', summary='none')
 
     def init_model_optimizer_logger(self, model, optimizer, writer=None):
+        '''
+        Initialize the model, the optimizer and the logger (wandb or tensorboard)
+        '''
         self.model = model.to(self.device)
         self.optimizer = optimizer
         self.writer = writer
@@ -348,7 +380,7 @@ class ProjectionTrainer:
         total_steps = self.max_epoch * len(self.train_loader)
         if self.scheduler_type == 'reduce_plateau':
             self.model_lr_scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=LOSS_PATIENCE, verbose=True)
-        elif self.scheduler_type == 'lambda':
+        elif self.scheduler_type == 'lambda':  # time-based decay lambda function is used.
             lambda_lr = lambda iter_count: (float)(max(total_steps - iter_count, 0)) / (float)(total_steps)
             self.model_lr_scheduler = lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda_lr)
         elif self.scheduler_type == 'one_cycle':
@@ -366,10 +398,16 @@ class ProjectionTrainer:
         print('Model is initialized.')
 
     def update_min_loss_summary(self):
+        '''
+        Logs the training loss at the minimum validation loss point
+        '''
         if self.logging_tool == 'wandb':
             wandb.run.summary['training_loss_at_min_val_loss'] = self.training_loss_at_min_val_loss
 
     def save_log_iteration_training(self):
+        '''
+        Logs the iteration based metrics during the training operations
+        '''
         if self.logging_tool == 'tensorboard':
             writer = self.writer
             writer.add_scalar('training_loss/iteration', self.iter_average_loss, self.iter_count)
@@ -394,6 +432,9 @@ class ProjectionTrainer:
                 wandb.log({'learning_rate_' + str(param_count) + '/iteration': lr}, step=self.iter_count)
 
     def save_log_iteration_test(self):
+        '''
+        Logs the iteration based metrics during the testing operations
+        '''
         if self.logging_tool == 'tensorboard':
             writer = self.writer
             writer.add_scalar('mean_test_pixel_error', self.mean_test_pixel_error)
@@ -403,7 +444,6 @@ class ProjectionTrainer:
             writer.add_scalar('mean_test_distance_error', self.mean_test_distance_error)
             writer.add_scalar('max_test_distance_error', self.max_test_distance_error)
             writer.add_scalar('test_accuracy_distance', self.test_accuracy_distance)
-
 
         elif self.logging_tool == 'wandb':
             wandb.log(
@@ -422,6 +462,9 @@ class ProjectionTrainer:
     def save_checkpoint(
             self, model_state_dict, optimizer_state_dict, epoch, iteration, accuracy, loss, is_best=False
     ):
+        '''
+        Save the checkpoint model with additional metadata like
+        '''
         if is_best:
             filename = 'best_model.pth'
             self.best_model_path = os.path.join(self.model_output_folder_path, filename)
@@ -446,6 +489,9 @@ class ProjectionTrainer:
             print(f'Model and optimizer parameters for the {self.iter_count}\'th iteration are saved in the {filename}.')
 
     def validation(self):
+        '''
+        Applies a validation step
+        '''
         with torch.no_grad():
             cum_validation_loss = 0
             cum_accuracy = 0
@@ -480,6 +526,9 @@ class ProjectionTrainer:
             )
 
     def train_forward(self, object_coords, projection_coord):
+        '''
+        Applies forward pass, loss calculations and optimizer updates in training phase
+        '''
         self.optimizer.zero_grad(set_to_none=True)
         if self.use_mixed_precision:
             with autocast():
@@ -497,12 +546,18 @@ class ProjectionTrainer:
         return loss.item()
 
     def step(self, sample):
+        '''
+        Conducts simple conversions and then one-step training pass.
+        '''
         obj_coords, projection_coord = sample
         obj_coords = obj_coords.type(torch.FloatTensor).to(self.device, non_blocking=True)
         projection_coord = projection_coord.type(torch.FloatTensor).to(self.device, non_blocking=True)
         return self.train_forward(obj_coords, projection_coord)
 
-    def apply_validation(self):
+    def run_validation(self):
+        '''
+        Main validation function.
+        '''
         self.model.eval()
         self.validation()
 
@@ -534,7 +589,10 @@ class ProjectionTrainer:
 
         self.save_log_iteration_training()
 
-    def train(self):
+    def run_train(self):
+        '''
+        Main train function.
+        '''
         for self.epoch_count in range(self.init_epoch_count, self.max_epoch + 1):
             self.epoch_loss = []
             iter_loss = []
@@ -562,7 +620,7 @@ class ProjectionTrainer:
                         self.curr_learning_rate[param_count] = param_group['lr']
                     iter_loss.clear()
                     if self.validation_enabled:
-                        self.apply_validation()
+                        self.run_validation()
                         if self.scheduler_type == 'reduce_plateau':
                             self.model_lr_scheduler.step(self.validation_loss)
 
@@ -589,7 +647,7 @@ class ProjectionTrainer:
                     )
                 )
         if self.validation_enabled:
-            self.apply_validation()
+            self.run_validation()
         if self.model_save_period > 0:
             self.save_checkpoint(
                 self.model.state_dict(),
@@ -603,15 +661,18 @@ class ProjectionTrainer:
         print('-' * 50)
         print('Best validation accuracy: {:6f}'.format(self.best_accuracy))
 
-    def run_train(self):
-        self.train()
-
     def read_model_file(self):
+        '''
+        Reads the printed best model.
+        '''
         print('-' * 50)
         print("Reading the projection estimation model ")
         self.checkpoint = torch.load(self.best_model_path, map_location=torch.device(self.device))
 
     def run_test(self):
+        '''
+        Main test function.
+        '''
         if self.best_model_path is not None:
             self.read_model_file()
             self.model.load_state_dict(self.checkpoint["model_state_dict"])
