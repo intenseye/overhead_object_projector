@@ -88,7 +88,7 @@ class Criterion_mse_loss(nn.Module):
     '''
     def __init__(self):
         super(Criterion_mse_loss, self).__init__()
-        self.loss = nn.MSELoss()
+        self.loss = nn.MSELoss(reduction='none')
 
     def forward(self, output, target):
         loss = self.loss(output, target)
@@ -110,7 +110,7 @@ class Criterion_nth_power_loss(nn.Module):
     def loss(self, output, target):
         dist = output - target
         power_loss = dist.pow(self.power_term).mean(1).pow(1/self.power_term)
-        return power_loss.mean()
+        return power_loss
 
 
 class ProjectionTrainer:
@@ -123,7 +123,6 @@ class ProjectionTrainer:
         self.driver = driver
         self.network_size = param_sweep['network_size']  # Defines the size of the networks.
 
-        RegressionModel = None
         if self.network_size == 'xl':
             RegressionModel = RegressionModelXLarge
         elif self.network_size == 'l':
@@ -136,6 +135,8 @@ class ProjectionTrainer:
             RegressionModel = RegressionModelXSmall
         elif self.network_size == 'linear':
             RegressionModel = RegressionModelLinear
+        else:
+            raise ValueError("Invalid network size %s" % repr(self.network_size))
 
         self.batch_size = int(param_sweep['batch_size'])  # Defines the batch size
         self.activation = param_sweep['activation']  # Defines the activation function to be used in hidden layers of networks
@@ -284,6 +285,7 @@ class ProjectionTrainer:
             self.generator.manual_seed(FIXED_SEED_NUM)
 
         self.validation_enabled = False
+        self.test_enabled = False
         self.val_ds = None
         self.test_ds = None
         if (self.validation_ratio + self.test_ratio) > 0:
@@ -493,8 +495,8 @@ class ProjectionTrainer:
         Applies a validation step
         '''
         with torch.no_grad():
-            cum_validation_loss = 0
-            cum_accuracy = 0
+            validation_losses = []
+            cum_hits = 0
 
             for sample in self.val_loader:
                 obj_coords, projection_coord = sample
@@ -510,15 +512,14 @@ class ProjectionTrainer:
                     loss = self.criterion(output, projection_coord)
                 abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                 hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
-                accuracy = torch.div(hit_count, torch.numel(abs_diffs))
 
-                cum_accuracy += accuracy.item()
-                cum_validation_loss += loss.item()
+                cum_hits += hit_count.item()
+                validation_losses.extend(loss)
 
-            self.validation_loss = cum_validation_loss / len(self.val_loader)
+            self.validation_loss = sum(validation_losses).mean().item() / len(validation_losses)
             print('Validation (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.validation_loss))
 
-            self.val_accuracy = cum_accuracy / len(self.val_loader)
+            self.val_accuracy = cum_hits / len(self.val_ds.indices)
             print(
                 'Max validation (accuracy) in iteration {:d} : ({:.6f})'.format(
                     self.iter_count, self.val_accuracy
@@ -534,16 +535,17 @@ class ProjectionTrainer:
             with autocast():
                 output = self.model(object_coords)
                 loss = self.criterion(output, projection_coord)
-            self.scaler.scale(loss).backward()
+
+            self.scaler.scale(loss.sum() / self.batch_size).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
             output = self.model(object_coords)
             loss = self.criterion(output, projection_coord)
-            loss.backward()
+            (loss.sum() / self.batch_size).backward()
             self.optimizer.step()
         self.iter_count += 1
-        return loss.item()
+        return loss
 
     def step(self, sample):
         '''
@@ -603,17 +605,17 @@ class ProjectionTrainer:
 
             for sample in tqdm(self.train_loader):
                 self.model.train()
-                loss_item = self.step(sample)
+                loss_items = self.step(sample)
                 if (
                         self.scheduler_type == 'one_cycle'
                         or self.scheduler_type == 'lambda'
                         or self.scheduler_type == 'step'
                 ):
                     self.model_lr_scheduler.step()
-                iter_loss.append(loss_item)
-                self.epoch_loss.append(loss_item)
+                iter_loss.extend(loss_items)
+                self.epoch_loss.extend(loss_items)
                 if self.loss_plot_period > 0 and self.iter_count % self.loss_plot_period == 0:
-                    self.iter_average_loss = sum(iter_loss) / len(iter_loss)
+                    self.iter_average_loss = sum(iter_loss).mean().item() / len(iter_loss)
 
                     print('\nTraining   (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.iter_average_loss))
                     for param_count, param_group in enumerate(self.optimizer.param_groups):
@@ -634,7 +636,7 @@ class ProjectionTrainer:
                         self.validation_loss,
                     )
 
-            self.epoch_average_loss = sum(self.epoch_loss) / len(self.epoch_loss)
+            self.epoch_average_loss = sum(self.epoch_loss).mean().item() / len(self.epoch_loss)
             self.epoch_loss.clear()
 
             print('\n' + '-' * 25)
@@ -680,11 +682,11 @@ class ProjectionTrainer:
 
             with torch.no_grad():
                 self.model.eval()
-                cum_test_loss = 0
+                test_losses = []
                 cum_abs_diff = 0
                 cum_abs_diff_distance = 0
-                cum_test_accuracy_pixel = 0
-                cum_test_accuracy_distance = 0
+                cum_test_hit_count_pixel = 0
+                cum_test_hit_count_distance = 0
                 max_diff = 0
                 self.max_test_distance_error = 0
 
@@ -712,16 +714,13 @@ class ProjectionTrainer:
 
                     abs_diffs_distance = torch.linalg.norm(dist, dim=1)
                     hit_count_distance = torch.sum((abs_diffs_distance <= DISTANCE_THRESHOLD_FOR_HIT).to(int))
-                    accuracy_distance = torch.div(hit_count_distance, torch.numel(abs_diffs_distance))
-
                     abs_diffs_pixel = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                     hit_count_pixel = torch.sum((abs_diffs_pixel <= self.normalized_hit_thr).to(int))
-                    accuracy_pixel = torch.div(hit_count_pixel, torch.numel(abs_diffs_pixel))
+                    cum_test_hit_count_pixel += hit_count_pixel.item()
+                    cum_test_hit_count_distance += hit_count_distance.item()
 
-                    cum_test_accuracy_pixel += accuracy_pixel.item()
-                    cum_test_accuracy_distance += accuracy_distance.item()
+                    test_losses.extend(loss)
 
-                    cum_test_loss += loss.item()
                     cum_abs_diff += torch.sum(abs_diffs_pixel).item()
                     cum_abs_diff_distance += torch.sum(abs_diffs_distance).item()
                     if torch.max(abs_diffs_pixel).item() > max_diff:
@@ -729,20 +728,19 @@ class ProjectionTrainer:
                     if torch.max(abs_diffs_distance).item() > self.max_test_distance_error:
                         self.max_test_distance_error = torch.max(abs_diffs_distance).item()
 
-
-                self.test_loss = cum_test_loss / len(self.test_loader)
+                self.test_loss = sum(test_losses).mean().item() / len(test_losses)
                 print('Test loss {:.6f}'.format(self.test_loss))
 
-                self.test_accuracy_pixel = cum_test_accuracy_pixel / len(self.test_loader)
+                self.test_accuracy_pixel = cum_test_hit_count_pixel / len(self.test_ds.indices)
                 print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
-                self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / (len(self.test_loader) * self.batch_size)
+                self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / len(self.test_ds.indices)
                 print('Mean test pixel error: ({:.6f})'.format(self.mean_test_pixel_error))
                 self.max_test_pixel_error = max_diff * self.related_cam_dim
                 print('Max test pixel error: ({:.6f})'.format(self.max_test_pixel_error))
 
-                self.test_accuracy_distance = cum_test_accuracy_distance / len(self.test_loader)
+                self.test_accuracy_distance = cum_test_hit_count_distance / len(self.test_ds.indices)
                 print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
-                self.mean_test_distance_error = cum_abs_diff_distance / (len(self.test_loader) * self.batch_size)
+                self.mean_test_distance_error = cum_abs_diff_distance / len(self.test_ds.indices)
                 print('Mean test distance error: ({:.6f})'.format(self.mean_test_distance_error))
                 print('Max test distance error: ({:.6f})'.format(self.max_test_distance_error))
 

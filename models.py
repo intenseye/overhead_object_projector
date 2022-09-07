@@ -3,7 +3,7 @@ import torch.nn as nn
 CONSTANT_STD = 0.01  # standard deviation value used for normally-distributed weight initialization
 
 
-def init_with_normal(modules):
+def init_with_normal(self, modules):
     for m in modules:
         if isinstance(m, nn.Linear):
             nn.init.normal_(m.weight.data, mean=0.0, std=CONSTANT_STD)
@@ -27,32 +27,39 @@ def set_activation_function(activation='relu'):
     return activation_function
 
 
-class RegressionModelXLarge(nn.Module):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
-        super(RegressionModelXLarge, self).__init__()
+class RegressionModel(nn.Module):
+    def __init__(self, activation, use_batch_norm):
+        super(RegressionModel, self).__init__()
         self.use_batch_norm = use_batch_norm
         self.activation_function = set_activation_function(activation)
+        self.linear_bias = True
+        if self.use_batch_norm is True:
+            self.linear_bias = False
 
-        self.linear1 = nn.Linear(4, 16)
-        self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+    def init_weights(self):
+        self.init_with_normal(self.modules())
 
-        self.linear2 = nn.Linear(16, 64)
-        self.bn2 = nn.BatchNorm1d(64, momentum=batch_momentum)
 
-        self.linear3 = nn.Linear(64, 256)
-        self.bn3 = nn.BatchNorm1d(128, momentum=batch_momentum)
+class RegressionModelXLarge(RegressionModel):
+    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+        super(RegressionModelXLarge, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
-        self.linear4 = nn.Linear(256, 1024)
-        self.bn4 = nn.BatchNorm1d(128, momentum=batch_momentum)
+        if self.use_batch_norm is True:
+            self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+            self.bn2 = nn.BatchNorm1d(64, momentum=batch_momentum)
+            self.bn3 = nn.BatchNorm1d(256, momentum=batch_momentum)
+            self.bn4 = nn.BatchNorm1d(1024, momentum=batch_momentum)
+            self.bn5 = nn.BatchNorm1d(256, momentum=batch_momentum)
+            self.bn6 = nn.BatchNorm1d(64, momentum=batch_momentum)
+            self.bn7 = nn.BatchNorm1d(16, momentum=batch_momentum)
 
-        self.linear5 = nn.Linear(1024, 256)
-        self.bn5 = nn.BatchNorm1d(128, momentum=batch_momentum)
-
-        self.linear6 = nn.Linear(256, 64)
-        self.bn6 = nn.BatchNorm1d(64, momentum=batch_momentum)
-
-        self.linear7 = nn.Linear(64, 16)
-        self.bn7 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
+        self.linear2 = nn.Linear(16, 64, bias=self.linear_bias)
+        self.linear3 = nn.Linear(64, 256, bias=self.linear_bias)
+        self.linear4 = nn.Linear(256, 1024, bias=self.linear_bias)
+        self.linear5 = nn.Linear(1024, 256, bias=self.linear_bias)
+        self.linear6 = nn.Linear(256, 64, bias=self.linear_bias)
+        self.linear7 = nn.Linear(64, 16, bias=self.linear_bias)
 
         if projection_axis == 'both':
             self.linear8 = nn.Linear(16, 2)
@@ -103,30 +110,23 @@ class RegressionModelXLarge(nn.Module):
 
         return x
 
-    def init_weights(self):
-        init_with_normal(self.modules())
 
-
-class RegressionModelLarge(nn.Module):
+class RegressionModelLarge(RegressionModel):
     def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
-        super(RegressionModelLarge, self).__init__()
-        self.use_batch_norm = use_batch_norm
-        self.activation_function = set_activation_function(activation)
+        super(RegressionModelLarge, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
-        self.linear1 = nn.Linear(4, 16)
-        self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        if self.use_batch_norm is True:
+            self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+            self.bn2 = nn.BatchNorm1d(64, momentum=batch_momentum)
+            self.bn3 = nn.BatchNorm1d(128, momentum=batch_momentum)
+            self.bn4 = nn.BatchNorm1d(64, momentum=batch_momentum)
+            self.bn5 = nn.BatchNorm1d(16, momentum=batch_momentum)
 
-        self.linear2 = nn.Linear(16, 64)
-        self.bn2 = nn.BatchNorm1d(64, momentum=batch_momentum)
-
-        self.linear3 = nn.Linear(64, 128)
-        self.bn3 = nn.BatchNorm1d(128, momentum=batch_momentum)
-
-        self.linear4 = nn.Linear(128, 64)
-        self.bn4 = nn.BatchNorm1d(64, momentum=batch_momentum)
-
-        self.linear5 = nn.Linear(64, 16)
-        self.bn5 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
+        self.linear2 = nn.Linear(16, 64, bias=self.linear_bias)
+        self.linear3 = nn.Linear(64, 128, bias=self.linear_bias)
+        self.linear4 = nn.Linear(128, 64, bias=self.linear_bias)
+        self.linear5 = nn.Linear(64, 16, bias=self.linear_bias)
 
         if projection_axis == 'both':
             self.linear6 = nn.Linear(16, 2)
@@ -167,24 +167,19 @@ class RegressionModelLarge(nn.Module):
 
         return x
 
-    def init_weights(self):
-        init_with_normal(self.modules())
 
-
-class RegressionModelMedium(nn.Module):
+class RegressionModelMedium(RegressionModel):
     def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
-        super(RegressionModelMedium, self).__init__()
-        self.use_batch_norm = use_batch_norm
-        self.activation_function = set_activation_function(activation)
+        super(RegressionModelMedium, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
-        self.linear1 = nn.Linear(4, 16)
-        self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        if self.use_batch_norm is True:
+            self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+            self.bn2 = nn.BatchNorm1d(64, momentum=batch_momentum)
+            self.bn3 = nn.BatchNorm1d(16, momentum=batch_momentum)
 
-        self.linear2 = nn.Linear(16, 64)
-        self.bn2 = nn.BatchNorm1d(16, momentum=batch_momentum)
-
-        self.linear3 = nn.Linear(64, 16)
-        self.bn3 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
+        self.linear2 = nn.Linear(16, 64, bias=self.linear_bias)
+        self.linear3 = nn.Linear(64, 16, bias=self.linear_bias)
 
         if projection_axis == 'both':
             self.linear4 = nn.Linear(16, 2)
@@ -215,21 +210,17 @@ class RegressionModelMedium(nn.Module):
 
         return x
 
-    def init_weights(self):
-        init_with_normal(self.modules())
 
-
-class RegressionModelSmall(nn.Module):
+class RegressionModelSmall(RegressionModel):
     def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
-        super(RegressionModelSmall, self).__init__()
-        self.use_batch_norm = use_batch_norm
-        self.activation_function = set_activation_function(activation)
+        super(RegressionModelSmall, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
-        self.linear1 = nn.Linear(4, 16)
-        self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        if self.use_batch_norm is True:
+            self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+            self.bn2 = nn.BatchNorm1d(16, momentum=batch_momentum)
 
-        self.linear2 = nn.Linear(16, 16)
-        self.bn2 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
+        self.linear2 = nn.Linear(16, 16, bias=self.linear_bias)
 
         if projection_axis == 'both':
             self.linear3 = nn.Linear(16, 2)
@@ -255,18 +246,15 @@ class RegressionModelSmall(nn.Module):
 
         return x
 
-    def init_weights(self):
-        init_with_normal(self.modules())
 
-
-class RegressionModelXSmall(nn.Module):
+class RegressionModelXSmall(RegressionModel):
     def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
-        super(RegressionModelXSmall, self).__init__()
-        self.use_batch_norm = use_batch_norm
-        self.activation_function = set_activation_function(activation)
+        super(RegressionModelXSmall, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
-        self.linear1 = nn.Linear(4, 16)
-        self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+        if self.use_batch_norm is True:
+            self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
+
+        self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
 
         if projection_axis == 'both':
             self.linear2 = nn.Linear(16, 2)
@@ -283,14 +271,10 @@ class RegressionModelXSmall(nn.Module):
         x = self.linear2(x)
         return x
 
-    def init_weights(self):
-        init_with_normal(self.modules())
 
-
-class RegressionModelLinear(nn.Module):
+class RegressionModelLinear(RegressionModel):
     def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
-        super(RegressionModelLinear, self).__init__()
-        self.use_batch_norm = use_batch_norm
+        super(RegressionModelLinear, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if projection_axis == 'both':
             self.linear1 = nn.Linear(4, 2)
@@ -302,8 +286,5 @@ class RegressionModelLinear(nn.Module):
     def forward(self, x):
         x = self.linear1(x)
         return x
-
-    def init_weights(self):
-        init_with_normal(self.modules())
 
 

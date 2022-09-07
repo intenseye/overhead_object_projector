@@ -28,6 +28,7 @@ RADIAL_DIST_ENABLED: bool = True
 K_1 = -0.05  # k1 parameter used for radial distribution
 K_2 = 0.0  # k2 parameter used for radial distribution
 RANDOM_DEVIATION_ENABLED: bool = True  # Enables random deviation for each edge od bounding box of the object.
+# TODO: We can add deviation to projection points too simulate the effect of marking error too.
 DEVIATON_SIGMA = 1.0  # Enables random deviation for each edge od bounding box of the object.
 ROTATE_ANGLE_MIN = -10.0  # Random rotation angle lower limit (in degrees)
 ROTATE_ANGLE_MAX = 10.0  # Random rotation angle upper limit (in degrees)
