@@ -21,8 +21,10 @@ from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelM
 DEVICE = "cuda:0"  # Device ('cuda:0' or 'cpu')
 LOGGING_TOOL = 'wandb'  # logging tool ('wandb' or 'tensorboard')
 NUM_WORKERS = 0  # Number of workers to load data
-PIXEL_THRESHOLD_FOR_HIT = 2.0  # Hit distance threshold between the prediction and ground truth (in pixels)
-DISTANCE_THRESHOLD_FOR_HIT = 0.5  # Hit distance threshold between the prediction and ground truth (in meters)
+PIXEL_THRESHOLD_FOR_HIT = 2.0  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
+# determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
+DISTANCE_THRESHOLD_FOR_HIT = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
+# determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 FIXED_SEED_NUM = 35  # Seed number
 VAL_COUNT_IN_EPOCH = 1  # Number of validation step in each epoch
 LOSS_DECREASE_COUNT = 4   # Number of loss decreasing StepLR used for step type schedulers
@@ -149,7 +151,6 @@ class ProjectionTrainer:
         self.model_output_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'models', self.driver, time_stamp)  # Model output folder
         self.log_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'logs', self.driver, time_stamp)  # Log folder
 
-        self.tuning_method = param_sweep['tuning_method']  # Tuning method ('loss' or 'accuracy')
         self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
         self.validation_ratio = float(param_sweep['validation_ratio'])  # Validation ratio to be used in data splitting
         self.test_ratio = float(param_sweep['test_ratio'])  # Test ratio to be used in data splitting
@@ -462,13 +463,16 @@ class ProjectionTrainer:
             )
 
     def save_checkpoint(
-            self, model_state_dict, optimizer_state_dict, epoch, iteration, accuracy, loss, is_best=False
+            self, model_state_dict, optimizer_state_dict, epoch, iteration, accuracy, loss, mode=None
     ):
         '''
         Save the checkpoint model with additional metadata like
         '''
-        if is_best:
-            filename = 'best_model.pth'
+        if mode == 'best_accuracy':
+            filename = 'best_accuracy_model.pth'
+            self.best_model_path = os.path.join(self.model_output_folder_path, filename)
+        elif mode == 'least_loss':
+            filename = 'least_loss_model.pth'
             self.best_model_path = os.path.join(self.model_output_folder_path, filename)
         else:
             filename = '-{0:08d}.pth'.format(self.iter_count)
@@ -485,7 +489,7 @@ class ProjectionTrainer:
             },
             checkpoint_model_path,
         )
-        if is_best:
+        if mode == 'best_accuracy' or mode == 'least_loss':
             print(f'\nModel and optimizer parameters for the best performed iteration are saved in the {filename}.\n')
         else:
             print(f'Model and optimizer parameters for the {self.iter_count}\'th iteration are saved in the {filename}.')
@@ -495,7 +499,8 @@ class ProjectionTrainer:
         Applies a validation step
         '''
         with torch.no_grad():
-            validation_losses = []
+            sample_count = 0
+            cum_validation_loss = 0
             cum_hits = 0
 
             for sample in self.val_loader:
@@ -513,10 +518,11 @@ class ProjectionTrainer:
                 abs_diffs = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                 hit_count = torch.sum((abs_diffs <= self.normalized_hit_thr).to(int))
 
+                sample_count += abs_diffs.size(dim=0)
                 cum_hits += hit_count.item()
-                validation_losses.extend(loss)
+                cum_validation_loss += torch.sum(loss.mean(dim=1)).item()
 
-            self.validation_loss = sum(validation_losses).mean().item() / len(validation_losses)
+            self.validation_loss = cum_validation_loss / sample_count
             print('Validation (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.validation_loss))
 
             self.val_accuracy = cum_hits / len(self.val_ds.indices)
@@ -536,16 +542,18 @@ class ProjectionTrainer:
                 output = self.model(object_coords)
                 loss = self.criterion(output, projection_coord)
 
-            self.scaler.scale(loss.sum() / self.batch_size).backward()
+            self.scaler.scale(loss.mean()).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
             output = self.model(object_coords)
             loss = self.criterion(output, projection_coord)
-            (loss.sum() / self.batch_size).backward()
+            loss.mean().backward()
             self.optimizer.step()
         self.iter_count += 1
-        return loss
+        cum_loss = torch.sum(loss.mean(dim=1)).item()
+        sample_count = loss.size(dim=0)
+        return cum_loss, sample_count
 
     def step(self, sample):
         '''
@@ -563,25 +571,28 @@ class ProjectionTrainer:
         self.model.eval()
         self.validation()
 
-        save_flag = False
         if self.validation_loss < self.least_loss:
             self.least_loss = self.validation_loss
-            if self.tuning_method == 'loss':
-                save_flag = True
+            self.save_checkpoint(
+                self.model.state_dict(),
+                self.optimizer.state_dict(),
+                self.epoch_count,
+                self.iter_count,
+                self.val_accuracy,
+                self.least_loss,
+                mode='least_loss',
+            )
+
         if self.val_accuracy > self.best_accuracy:
             self.best_accuracy = self.val_accuracy
-            if self.tuning_method == 'accuracy':
-                save_flag = True
-
-        if save_flag:
             self.save_checkpoint(
                 self.model.state_dict(),
                 self.optimizer.state_dict(),
                 self.epoch_count,
                 self.iter_count,
                 self.best_accuracy,
-                self.least_loss,
-                True,
+                self.validation_loss,
+                mode='best_accuracy',
             )
 
         if self.validation_loss < self.min_val_loss:
@@ -596,8 +607,11 @@ class ProjectionTrainer:
         Main train function.
         '''
         for self.epoch_count in range(self.init_epoch_count, self.max_epoch + 1):
-            self.epoch_loss = []
-            iter_loss = []
+            epoch_loss = 0
+            iter_loss = 0
+            iter_sample_count = 0
+            epoch_sample_count = 0
+
             self.curr_learning_rate = [None] * len(self.optimizer.param_groups)
 
             print('\nEpoch {}/{}'.format(self.epoch_count, self.max_epoch))
@@ -605,22 +619,26 @@ class ProjectionTrainer:
 
             for sample in tqdm(self.train_loader):
                 self.model.train()
-                loss_items = self.step(sample)
+                batch_loss, batch_sample_count = self.step(sample)
                 if (
                         self.scheduler_type == 'one_cycle'
                         or self.scheduler_type == 'lambda'
                         or self.scheduler_type == 'step'
                 ):
                     self.model_lr_scheduler.step()
-                iter_loss.extend(loss_items)
-                self.epoch_loss.extend(loss_items)
+                iter_loss += batch_loss
+                epoch_loss += batch_loss
+                iter_sample_count += batch_sample_count
+                epoch_sample_count += batch_sample_count
+
                 if self.loss_plot_period > 0 and self.iter_count % self.loss_plot_period == 0:
-                    self.iter_average_loss = sum(iter_loss).mean().item() / len(iter_loss)
+                    self.iter_average_loss = iter_loss / iter_sample_count
 
                     print('\nTraining   (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.iter_average_loss))
                     for param_count, param_group in enumerate(self.optimizer.param_groups):
                         self.curr_learning_rate[param_count] = param_group['lr']
-                    iter_loss.clear()
+                    iter_loss = 0
+                    iter_sample_count = 0
                     if self.validation_enabled:
                         self.run_validation()
                         if self.scheduler_type == 'reduce_plateau':
@@ -636,8 +654,7 @@ class ProjectionTrainer:
                         self.validation_loss,
                     )
 
-            self.epoch_average_loss = sum(self.epoch_loss).mean().item() / len(self.epoch_loss)
-            self.epoch_loss.clear()
+            self.epoch_average_loss = epoch_loss / epoch_sample_count
 
             print('\n' + '-' * 25)
             print('Training      (EPOCH {:4d}, loss {:.6f})'.format(self.epoch_count, self.epoch_average_loss))
@@ -682,7 +699,8 @@ class ProjectionTrainer:
 
             with torch.no_grad():
                 self.model.eval()
-                test_losses = []
+                cum_test_loss = 0
+                test_sample_count = 0
                 cum_abs_diff = 0
                 cum_abs_diff_distance = 0
                 cum_test_hit_count_pixel = 0
@@ -719,7 +737,8 @@ class ProjectionTrainer:
                     cum_test_hit_count_pixel += hit_count_pixel.item()
                     cum_test_hit_count_distance += hit_count_distance.item()
 
-                    test_losses.extend(loss)
+                    cum_test_loss += torch.sum(loss.mean(dim=1)).item()
+                    test_sample_count += loss.size(dim=0)
 
                     cum_abs_diff += torch.sum(abs_diffs_pixel).item()
                     cum_abs_diff_distance += torch.sum(abs_diffs_distance).item()
@@ -728,7 +747,7 @@ class ProjectionTrainer:
                     if torch.max(abs_diffs_distance).item() > self.max_test_distance_error:
                         self.max_test_distance_error = torch.max(abs_diffs_distance).item()
 
-                self.test_loss = sum(test_losses).mean().item() / len(test_losses)
+                self.test_loss = cum_test_loss / test_sample_count
                 print('Test loss {:.6f}'.format(self.test_loss))
 
                 self.test_accuracy_pixel = cum_test_hit_count_pixel / len(self.test_ds.indices)
@@ -755,7 +774,7 @@ class ProjectionTrainer:
 
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
-    parser.add_argument("--driver", help="Indicates driver", default='manual')
+    parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'], default='manual')
     parser.add_argument("--input_txt_path", help="Path to input txt file.",
                         default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected.txt')
     parser.add_argument("--distance_map_path", help="Path distance map.",

@@ -15,3 +15,6 @@ torchvision-0.13.1
 ```
 pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu113
 ```
+
+Note: The W&B sweeper produces configurations by considering the ranges and distributions of the hyperparameters and prints 
+them to temp_params.py before the training with the decided configuration.

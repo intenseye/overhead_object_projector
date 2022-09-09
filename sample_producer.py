@@ -95,7 +95,7 @@ def apply_radial_dist(point, cx, cy):
     norm_dist_x, norm_dist_y = (np.array(point) - np.array((cx, cy))) / np.array((cx, cy))
     r2 = norm_dist_x ** 2 + norm_dist_y ** 2
     distorted_point = np.array([-10000, -10000])
-    distortion_coeff_x = 1 + K_1 * r2 + K_2 * r2**2
+    distortion_coeff_x = 1 + K_1 * r2 + K_2 * r2 ** 2
     distortion_coeff_y = 1 + K_1 * r2 + K_2 * r2 ** 2
     if distortion_coeff_x > 0 and distortion_coeff_y > 0:
         distorted_point = np.array((norm_dist_x * distortion_coeff_x, norm_dist_y * distortion_coeff_y)) * np.array(
@@ -137,7 +137,8 @@ class PointEstimatorProjection:
 
     def calc_camera_calibration_matrix(self):
         '''
-        Calculate camera calibration matrix K
+        Calculate camera calibration matrix K. It is assumed that our pixels are square shaped and no skewed image
+        center .
         '''
         focal_length = cotan(math.radians(CAM_FOV_HOR / 2)) * self.cx
         # Cameras intrinsic matrix [K]
@@ -257,7 +258,7 @@ class PointEstimatorProjection:
         '''
         for ind_j, j in enumerate(range(self.extended_y_start, self.extended_height + self.extended_y_start)):
             for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
-                unit_ray_loc = np.matmul(self.P_inv, np.array([i, j, 1]))  # TODO: We may need to send ray from np.array([i+0.5, j+0.5, 1]
+                unit_ray_loc = np.matmul(self.P_inv, np.array([i+0.5, j+0.5, 1]))
                 if unit_ray_loc[1] > 0:  # means ray is traveling in downward direction
                     unit_ray_multiplier = -CAM_Y / unit_ray_loc[1]  # Projected elevation is 0 which means -CAM_Y for camera centered coordinate system.
                     self.pixel_world_coords[ind_j, ind_i, :] = unit_ray_multiplier * unit_ray_loc[:3] + np.array([CAM_X, CAM_Y, CAM_Z])
@@ -356,10 +357,10 @@ class PointEstimatorProjection:
             bbox_br = [bbox_br[0] + right_dev, bbox_br[1] + bottom_dev]
             bbox_bl = [bbox_bl[0] + left_dev, bbox_bl[1] + bottom_dev]
 
-        bbox_points = [bbox_tl, bbox_tr, bbox_br, bbox_bl]  # TODO: We may need to convert to integer to simulate object detector. (Is there any floating point bbox detector in literature?)
+        bbox_points = [bbox_tl, bbox_tr, bbox_br, bbox_bl]
 
         proj_points = [point_p_lb, point_p_rb, point_p_rf, point_p_lf]
-        proj_mid_point = [point_p_cen]  # TODO: Not sure that we need to convert to integer. I believe we are able to select a floating point GT using a tool.
+        proj_mid_point = [point_p_cen]
 
         # Gets the facade points for visual representation
         front_facade = [point_o_tlf, point_o_trf, point_o_brf, point_o_blf]
