@@ -367,7 +367,8 @@ class PointEstimatorProjection:
         back_facade = [point_o_tlb, point_o_trb, point_o_brb, point_o_blb]
         top_facade = [point_o_tlf, point_o_tlb, point_o_trb, point_o_trf]
 
-        return bbox_points, proj_points, proj_mid_point, front_facade, back_facade, top_facade
+        object_points = [point_o_tlf, point_o_tlb, point_o_trf, point_o_trb, point_o_blf, point_o_blb, point_o_brf, point_o_brb]
+        return object_points, bbox_points, proj_points, proj_mid_point, front_facade, back_facade, top_facade
 
 
 inputs = []
@@ -394,7 +395,7 @@ for z in tqdm(np.logspace(np.log10(Z_SEARCH_MIN), np.log10(Z_SEARCH_MAX), num=Z_
             else:
                 point_estimator.get_relative_world_coords(object_x=x, object_y=-y, object_z=z, rotate_angle=rotate_angle)
 
-            bbox, proj, proj_mid, front, back, top = point_estimator.get_pixel_points()
+            obj, bbox, proj, proj_mid, front, back, top = point_estimator.get_pixel_points()
             mid_bottom_coord, bbox_width_height, proj_coord_offset = calculate_input_coord(bbox, proj_mid)
             # Filter the sample set in a such way that both object and center of the projection are completely visible
             # in the camera.
@@ -410,13 +411,22 @@ for z in tqdm(np.logspace(np.log10(Z_SEARCH_MIN), np.log10(Z_SEARCH_MAX), num=Z_
                     cam_width_heights.append(cam_width_height)
 
                 if DEMO_MODE or DRAW_ENABLED:  # Printing of the results
-                    image = np.zeros((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH, 3), dtype=np.uint8)
+                    image = np.ones((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH, 3), dtype=np.uint8) * 90
                     connect_and_draw_points(image, bbox, GREEN_COLOR)
                     connect_and_draw_points(image, proj, YELLOW_COLOR)
+                    connect_and_draw_points(image, [obj[0]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[1]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[2]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[3]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[4]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[5]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[6]], RED_COLOR)
+                    connect_and_draw_points(image, [obj[7]], RED_COLOR)
+
                     connect_and_draw_points(image, proj_mid, RED_COLOR)
-                    connect_and_draw_points(image, front, WHITE_COLOR)
-                    connect_and_draw_points(image, back, WHITE_COLOR)
-                    connect_and_draw_points(image, top, WHITE_COLOR)
+                    connect_and_draw_points(image, front, YELLOW_COLOR)
+                    connect_and_draw_points(image, back, YELLOW_COLOR)
+                    connect_and_draw_points(image, top, YELLOW_COLOR)
                     plt.imshow(image)
                     plt.pause(PAUSE_FIG_TIME)
                     plt.cla()

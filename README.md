@@ -8,7 +8,7 @@ conda activate overhead_object_projector
 pip install -r requirements.txt
 ```
 
-Please install torch, torchvision and torchaudio by considering the compatible CUDA version. Tested with:
+Please install torch, torchvision by considering the compatible CUDA version. Tested with:
 torch-1.12.1
 torchvision-0.13.1
 

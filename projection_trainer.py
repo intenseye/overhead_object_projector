@@ -27,9 +27,9 @@ DISTANCE_THRESHOLD_FOR_HIT = 0.5  # Hit distance threshold between the predictio
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 FIXED_SEED_NUM = 35  # Seed number
 VAL_COUNT_IN_EPOCH = 1  # Number of validation step in each epoch
-LOSS_DECREASE_COUNT = 4   # Number of loss decreasing StepLR used for step type schedulers
-LOSS_DECREASE_GAMMA = 0.1  # Gamma value used for StepLR type schedulers
-LOSS_PATIENCE = 2  # patience value used for ReduceLROnPlateau type schedulers
+LOSS_DECREASE_COUNT = 4   # Number of loss decreasing used for StepLR type scheduler
+LOSS_DECREASE_GAMMA = 0.1  # Gamma value used for StepLR type scheduler
+LOSS_PATIENCE = 2  # patience value used for ReduceLROnPlateau type scheduler
 MAIN_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/'
 USE_BATCH_NORM = False  # Enables batch normalization
 BATCH_MOMENTUM = 0.1  # Batch momentum value used for the batch normalization layers
@@ -140,7 +140,7 @@ class ProjectionTrainer:
         else:
             raise ValueError("Invalid network size %s" % repr(self.network_size))
 
-        self.batch_size = int(param_sweep['batch_size'])  # Defines the batch size
+        self.batch_size = int(float(param_sweep['batch_size']))  # Defines the batch size
         self.activation = param_sweep['activation']  # Defines the activation function to be used in hidden layers of networks
         self.loss_function = param_sweep['loss_function_reg']  # Defines the loss function
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
