@@ -10,6 +10,9 @@ params = dict(network_size="xl", batch_size="16", loss_function_reg="mse", tunin
 
 
 def wandb_sweep_runner():
+    """
+    Sweeps the parameter and runs the training.
+    """
     modified_env = os.environ.copy()
     modified_env["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     config_to_run = {}

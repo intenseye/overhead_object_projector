@@ -1,16 +1,38 @@
+from typing import Any
+import torch
 import torch.nn as nn
 
 CONSTANT_STD = 0.01  # standard deviation value used for normally-distributed weight initialization
 
 
-def init_with_normal(self, modules):
+def init_with_normal(modules: Any):
+    """
+    Initialize the weight values from the normal distribution
+
+    Parameters
+    ----------
+    modules: Any
+        Modules of the model
+    """
     for m in modules:
         if isinstance(m, nn.Linear):
             nn.init.normal_(m.weight.data, mean=0.0, std=CONSTANT_STD)
 
 
-def set_activation_function(activation='relu'):
+def set_activation_function(activation: str = 'relu') -> Any:
+    """
+    Sets the activation function.
 
+    Parameters
+    ----------
+    activation: str
+        Activation tag
+
+    Returns
+    ----------
+    activation_function: Any
+        Activation function
+    """
     activation_function = None
     if activation == 'relu':
         activation_function = nn.ReLU()
@@ -28,7 +50,20 @@ def set_activation_function(activation='relu'):
 
 
 class RegressionModel(nn.Module):
-    def __init__(self, activation, use_batch_norm):
+    """
+    Regression Model base class
+    """
+    def __init__(self, activation: str, use_batch_norm: bool):
+        """
+        Initialize the base Regression Model class.
+
+        Parameters
+        ----------
+        activation: str
+            Activation tag
+        use_batch_norm: bool
+            Enables batch normalization
+        """
         super(RegressionModel, self).__init__()
         self.use_batch_norm = use_batch_norm
         self.activation_function = set_activation_function(activation)
@@ -37,11 +72,35 @@ class RegressionModel(nn.Module):
             self.linear_bias = False
 
     def init_weights(self):
-        self.init_with_normal(self.modules())
+        """
+        Initialize weights of the model.
+        """
+        init_with_normal(self.modules())
 
 
 class RegressionModelXLarge(RegressionModel):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+    """
+    XLarge Regression Model class
+    """
+    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
+                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
+        """
+        Initialize the XLarge Regression Model class.
+
+        Parameters
+        ----------
+        projection_axis: str
+            The projection axis
+        activation: str
+            Activation tag
+        init_w_normal: bool
+            Enables the normal distribution based weight initialization
+        use_batch_norm: bool
+            Enables batch normalization
+        batch_momentum: bool
+            Momentum value used in batch normalization
+        """
+
         super(RegressionModelXLarge, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
@@ -69,7 +128,20 @@ class RegressionModelXLarge(RegressionModel):
         if init_w_normal:
             self.init_weights()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass function of the model
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input of the model
+
+        Returns
+        ----------
+        x: torch.Tensor
+            Output of the model
+        """
 
         x = self.linear1(x)
         if self.use_batch_norm:
@@ -112,7 +184,25 @@ class RegressionModelXLarge(RegressionModel):
 
 
 class RegressionModelLarge(RegressionModel):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+    """
+    Initialize the Large Regression Model class.
+
+    Parameters
+    ----------
+    projection_axis: str
+        The projection axis
+    activation: str
+        Activation tag
+    init_w_normal: bool
+        Enables the normal distribution based weight initialization
+    use_batch_norm: bool
+        Enables batch normalization
+    batch_momentum: bool
+        Momentum value used in batch normalization
+    """
+
+    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
+                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
         super(RegressionModelLarge, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
@@ -136,7 +226,20 @@ class RegressionModelLarge(RegressionModel):
         if init_w_normal:
             self.init_weights()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass function of the model
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input of the model
+
+        Returns
+        ----------
+        x: torch.Tensor
+            Output of the model
+        """
 
         x = self.linear1(x)
         if self.use_batch_norm:
@@ -169,7 +272,28 @@ class RegressionModelLarge(RegressionModel):
 
 
 class RegressionModelMedium(RegressionModel):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+    """
+    Medium Regression Model class
+    """
+    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
+                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
+        """
+        Initialize the Medium Regression Model class.
+
+        Parameters
+        ----------
+        projection_axis: str
+            The projection axis
+        activation: str
+            Activation tag
+        init_w_normal: bool
+            Enables the normal distribution based weight initialization
+        use_batch_norm: bool
+            Enables batch normalization
+        batch_momentum: bool
+            Momentum value used in batch normalization
+        """
+
         super(RegressionModelMedium, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
@@ -189,7 +313,20 @@ class RegressionModelMedium(RegressionModel):
         if init_w_normal:
             self.init_weights()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass function of the model
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input of the model
+
+        Returns
+        ----------
+        x: torch.Tensor
+            Output of the model
+        """
 
         x = self.linear1(x)
         if self.use_batch_norm:
@@ -212,7 +349,25 @@ class RegressionModelMedium(RegressionModel):
 
 
 class RegressionModelSmall(RegressionModel):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+    """
+    Initialize the Small Regression Model class.
+
+    Parameters
+    ----------
+    projection_axis: str
+        The projection axis
+    activation: str
+        Activation tag
+    init_w_normal: bool
+        Enables the normal distribution based weight initialization
+    use_batch_norm: bool
+        Enables batch normalization
+    batch_momentum: bool
+        Momentum value used in batch normalization
+    """
+
+    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
+                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
         super(RegressionModelSmall, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
@@ -230,7 +385,20 @@ class RegressionModelSmall(RegressionModel):
         if init_w_normal:
             self.init_weights()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass function of the model
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input of the model
+
+        Returns
+        ----------
+        x: torch.Tensor
+            Output of the model
+        """
 
         x = self.linear1(x)
         if self.use_batch_norm:
@@ -248,7 +416,28 @@ class RegressionModelSmall(RegressionModel):
 
 
 class RegressionModelXSmall(RegressionModel):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+    """
+    XSmall Regression Model class
+    """
+    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
+                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
+        """
+        Initialize the XSmall Regression Model class.
+
+        Parameters
+        ----------
+        projection_axis: str
+            The projection axis
+        activation: str
+            Activation tag
+        init_w_normal: bool
+            Enables the normal distribution based weight initialization
+        use_batch_norm: bool
+            Enables batch normalization
+        batch_momentum: bool
+            Momentum value used in batch normalization
+        """
+
         super(RegressionModelXSmall, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
@@ -263,7 +452,21 @@ class RegressionModelXSmall(RegressionModel):
         if init_w_normal:
             self.init_weights()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass function of the model
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input of the model
+
+        Returns
+        ----------
+        x: torch.Tensor
+            Output of the model
+        """
+
         x = self.linear1(x)
         if self.use_batch_norm:
             x = self.bn1(x)
@@ -273,7 +476,25 @@ class RegressionModelXSmall(RegressionModel):
 
 
 class RegressionModelLinear(RegressionModel):
-    def __init__(self, projection_axis='x', activation='relu', init_w_normal=False, use_batch_norm=False, batch_momentum=0.1):
+    """
+    Initialize the Linear Regression Model class.
+
+    Parameters
+    ----------
+    projection_axis: str
+        The projection axis
+    activation: str
+        Activation tag
+    init_w_normal: bool
+        Enables the normal distribution based weight initialization
+    use_batch_norm: bool
+        Enables batch normalization
+    batch_momentum: bool
+        Momentum value used in batch normalization
+    """
+
+    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
+                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
         super(RegressionModelLinear, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if projection_axis == 'both':
@@ -283,8 +504,20 @@ class RegressionModelLinear(RegressionModel):
         if init_w_normal:
             self.init_weights()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass function of the model
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input of the model
+
+        Returns
+        ----------
+        x: torch.Tensor
+            Output of the model
+        """
+
         x = self.linear1(x)
         return x
-
-

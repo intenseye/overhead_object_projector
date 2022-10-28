@@ -2,9 +2,11 @@ import sys
 import os
 import random
 import math
+from typing import List, Tuple, Any, Union
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+from numpy import ndarray
 from tqdm import tqdm
 import pickle
 
@@ -12,9 +14,9 @@ DEMO_MODE: bool = False  # Enables the demo mode. In demo mode the random locate
 DRAW_ENABLED: bool = False  # Enables the drawing mode
 FIXED_SEED: bool = True  # Used to fix seed for deterministic results
 FIXED_SEED_NUM: int = 35  # Seed number
-LINE_THICKNESS: int = 1  # Line thickness used for the drawing operations.
+LINE_THICKNESS: int = 2  # Line thickness used for the drawing operations.
 GREEN_COLOR = (0, 255, 0)  # Green color code
-YELLOW_COLOR = (255, 255, 0)  # Yellow color code
+ORANGE_COLOR = (255, 200, 0)  # Orange color code
 RED_COLOR = (255, 0, 0)  # Red color code
 WHITE_COLOR = (255, 255, 255)  # White color code
 PAUSE_FIG_TIME = 0.01  # Delay time applied during the consecutive drawings
@@ -61,11 +63,21 @@ PROJECTION_DATA_PATH = 'inputs_outputs_corrected.txt'  # relative path to projec
 AUXILIARY_DATA_PATH = 'auxiliary_data_corrected.pickle'  # relative path to auxiliary data
 
 
-def connect_and_draw_points(input_image, points, color):
-    '''
+def connect_and_draw_points(input_image: np.ndarray, points: List[Tuple[float]], color: Tuple[int, int, int]):
+    """
     Connects and draw points. If the points includes only one point then a marker placed to the point. Otherwise, the
     adjacent points are connected with line.
-    '''
+
+    Parameters
+    ----------
+    input_image: np.ndarray
+        Input image
+    points: List[Tuple[float]]
+        Point to be used to draw on image
+    color: Tuple[int]
+        Color used in the drawings.
+
+    """
     if len(points) == 1:
         cv2.drawMarker(input_image, np.round(points[0]).astype(int), color=color, markerType=cv2.MARKER_STAR,
                        thickness=LINE_THICKNESS)
@@ -81,17 +93,43 @@ def connect_and_draw_points(input_image, points, color):
         print('Given point list is empty!')
 
 
-def cotan(radians):
-    '''
+def cotan(radians: float) -> float:
+    """
     Calculate cotangent of an angle given in radians.
-    '''
-    return 1 / math.tan(radians)
+
+    Parameters
+    ----------
+    radians: float
+        Value of the given angle in radians
+
+    Returns
+    ----------
+    cotan_value: float
+        Cotangent value of the given angle
+
+    """
+    cotan_value = 1 / math.tan(radians)
+    return cotan_value
 
 
-def apply_radial_dist(point, cx, cy):
-    '''
+def apply_radial_dist(point: np.ndarray, cx: float, cy: float) -> np.ndarray:
+    """
     Transform a point in camera using radial distortion coefficients.
-    '''
+
+    Parameters
+    ----------
+    point: np.ndarray
+        Location of the point in image space before the distortion operation.
+    cx: float
+        Principal point location in the horizontal axis of the camera
+    cy: float
+        Principal point location in the vertical axis of the camera
+
+    Returns
+    ----------
+    distorted_point: np.ndarray
+        Location of the point in image space after applying the distortion.
+    """
     norm_dist_x, norm_dist_y = (np.array(point) - np.array((cx, cy))) / np.array((cx, cy))
     r2 = norm_dist_x ** 2 + norm_dist_y ** 2
     distorted_point = np.array([-10000, -10000])
@@ -103,20 +141,38 @@ def apply_radial_dist(point, cx, cy):
     return distorted_point
 
 
-def calculate_input_coord(bbox, proj_mid):
-    '''
+def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[Union[float, Any], ndarray, Any]:
+    """
     Calculates input and target data points to be used in the model.
-    '''
+
+    Parameters
+    ----------
+    bbox: List[Tuple[float]]
+        Coordinates of the bounding box in the image.
+    proj_mid: List[np.ndarray]
+        Coordinates of the projection point in the image.
+
+    Returns
+    ----------
+    input_coords: Tuple[Union[float, Any], ndarray, Any]
+        Input coordinates to be fed to the projection point estimator.
+    """
     bbox_bottom_center = ((np.array(bbox[2]) + np.array(bbox[3])) / 2)
     bbox_width_height = np.array((bbox[1][0] - bbox[0][0], bbox[2][1] - bbox[1][1]))
     proj_wrt_bbox_bottom_center = proj_mid[0] - bbox_bottom_center
-
-    return bbox_bottom_center, bbox_width_height, proj_wrt_bbox_bottom_center
+    input_coords = bbox_bottom_center, bbox_width_height, proj_wrt_bbox_bottom_center
+    return input_coords
 
 
 class PointEstimatorProjection:
+    """
+    Point estimator projection class
+    """
     def __init__(self):
+        """
+        Initialize the Point estimator projection class.
 
+        """
         if FIXED_SEED:
             os.environ['PYTHONHASHSEED'] = str(FIXED_SEED_NUM)
             random.seed(FIXED_SEED_NUM)
@@ -135,11 +191,16 @@ class PointEstimatorProjection:
         self.calc_projection_matrix()
         self.calc_pixel_world_coordinates()
 
-    def calc_camera_calibration_matrix(self):
-        '''
+    def calc_camera_calibration_matrix(self) -> np.ndarray:
+        """
         Calculate camera calibration matrix K. It is assumed that our pixels are square shaped and no skewed image
-        center .
-        '''
+        center.
+
+        Returns
+        ----------
+        K: np.ndarray
+            Camera calibration matrix K
+        """
         focal_length = cotan(math.radians(CAM_FOV_HOR / 2)) * self.cx
         # Cameras intrinsic matrix [K]
         K = np.array(
@@ -149,10 +210,21 @@ class PointEstimatorProjection:
         )
         return K
 
-    def get_rot_x(self, angle):
-        '''
-        Rotation matrix around X axis
-        '''
+    def get_rot_x(self, angle: float):
+        """
+        Rotation matrix around X-axis
+
+        Parameters
+        ----------
+        angle: float
+            Camera rotation angle around X-axis in radians
+
+        Returns
+        ----------
+        R_x: np.ndarray
+            Rotation matrix of camera around X-axis
+        """
+
         R_x = np.zeros((3, 3))
         cos_ang = np.cos(angle)
         sin_ang = np.sin(angle)
@@ -164,10 +236,21 @@ class PointEstimatorProjection:
         R_x[2, 2] = cos_ang
         return R_x
 
-    def get_rot_y(self, angle):
-        '''
-        Rotation matrix around Y axis
-        '''
+    def get_rot_y(self, angle: float):
+        """
+        Rotation matrix around Y-axis
+
+        Parameters
+        ----------
+        angle: float
+            Camera rotation angle around Y-axis in radians
+
+        Returns
+        ----------
+        R_y: np.ndarray
+            Rotation matrix of camera around Y-axis
+
+        """
         R_y = np.zeros((3, 3))
         cos_ang = np.cos(angle)
         sin_ang = np.sin(angle)
@@ -179,10 +262,20 @@ class PointEstimatorProjection:
         R_y[2, 2] = cos_ang
         return R_y
 
-    def get_rot_z(self, angle):
-        '''
-        Rotation matrix around Z axis
-        '''
+    def get_rot_z(self, angle: float) -> np.ndarray:
+        """
+        Rotation matrix around Z-axis
+
+        Parameters
+        ----------
+        angle: float
+            Camera rotation angle around Z-axis in radians
+
+        Returns
+        ----------
+        R_z: np.ndarray
+            Rotation matrix of camera around Z-axis
+        """
         R_z = np.zeros((3, 3))
         cos_ang = np.cos(angle)
         sin_ang = np.sin(angle)
@@ -194,11 +287,23 @@ class PointEstimatorProjection:
         R_z[2, 2] = 1
         return R_z
 
-    def calc_rotation_matrix(self, angles, order):
-        '''
-        Calculates rotation martix by considering angles in the given order
+    def calc_rotation_matrix(self, angles: List[float], order: List[str]) -> np.ndarray:
+        """
+        Calculates rotation matrix by considering angles in the given order
         Note: The rotation is calculated in clockwise direction (use right-hand-rule)
-        '''
+
+        Parameters
+        ----------
+        angles: List[float]
+            Camera rotation angle values
+        order: List[str]
+            Camera rotation angle orders
+
+        Returns
+        ----------
+        R: np.ndarray
+            Rotation matrix of the camera
+        """
         rot_map = {'pitch': self.get_rot_x, 'yaw': self.get_rot_y, 'roll': self.get_rot_z}
         R = np.eye(3)
         for angle, axis in list(zip(angles, order))[::-1]:
@@ -207,9 +312,9 @@ class PointEstimatorProjection:
         return R
 
     def calc_projection_matrix(self):
-        '''
+        """
         Calculates projection matrix between world coordinate and camera pixel coordinates.
-        '''
+        """
         K = self.calc_camera_calibration_matrix()
 
         # Basic representation of world coordinate system and pixel coordinate system
@@ -242,10 +347,20 @@ class PointEstimatorProjection:
         # P^+ = P^T(PP^T)^−1, for which PP^+ = I
         self.P_inv = np.matmul(np.transpose(self.P), np.linalg.inv(np.matmul(self.P, np.transpose(self.P))))
 
-    def project_pixel_coord(self, relative_object_loc):
-        '''
-        Projects from world coordinate system into pixel coordinate system.
-        '''
+    def project_pixel_coord(self, relative_object_loc: List[List[float]]) -> np.ndarray:
+        """
+        Projects from the world coordinate system into pixel coordinate system.
+
+        Parameters
+        ----------
+        relative_object_loc: List[List[float]]
+            Relative location w.r.t camera center
+
+        Returns
+        ----------
+        x_norm: np.ndarray
+            Pixel coordinate of the object point
+        """
         # Project into pixel coordinate system
         x_pixel = np.matmul(self.P, np.array(relative_object_loc))
         # Normalize by z to get real pixel coordinates
@@ -253,23 +368,36 @@ class PointEstimatorProjection:
         return x_norm
 
     def calc_pixel_world_coordinates(self):
-        '''
+        """
         Back projects from pixel coordinate into fixed elevation world coordinate system.
-        '''
+        """
         for ind_j, j in enumerate(range(self.extended_y_start, self.extended_height + self.extended_y_start)):
             for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
                 unit_ray_loc = np.matmul(self.P_inv, np.array([i+0.5, j+0.5, 1]))
                 if unit_ray_loc[1] > 0:  # means ray is traveling in downward direction
                     unit_ray_multiplier = -CAM_Y / unit_ray_loc[1]  # Projected elevation is 0 which means -CAM_Y for camera centered coordinate system.
                     self.pixel_world_coords[ind_j, ind_i, :] = unit_ray_multiplier * unit_ray_loc[:3] + np.array([CAM_X, CAM_Y, CAM_Z])
+        print('Pixel ray coordinates are calculated.')
 
-    def get_relative_world_coords(self, object_x, object_y, object_z, rotate_angle):
-        '''
+    def get_relative_world_coords(self, object_x: float, object_y: float, object_z: float, rotation_angle: float):
+        """
         Gets the world coordinate system points of the object and projection of it w.r.t camera centered origin and object rotation.
-        '''
-        rotate_angle = math.radians(rotate_angle)
-        rot_cos = math.cos(rotate_angle)
-        rot_sin = math.sin(rotate_angle)
+
+        Parameters
+        ----------
+        object_x: float
+            Location of the object in X-axis
+        object_y: float
+            Location of the object in Y-axis
+        object_z: float
+            Location of the object in Z-axis
+        rotation_angle: float
+            Rotation angle of the objects about Y-axis in radians
+
+        """
+        rotation_angle = math.radians(rotation_angle)
+        rot_cos = math.cos(rotation_angle)
+        rot_sin = math.sin(rotation_angle)
 
         rot_length_inc = (OBJ_LENGTH / 2) * rot_cos + (OBJ_WIDTH / 2) * rot_sin
         rot_length_dec = (OBJ_LENGTH / 2) * rot_cos - (OBJ_WIDTH / 2) * rot_sin
@@ -280,26 +408,31 @@ class PointEstimatorProjection:
         object_rel_top = [object_y - OBJ_HEIGHT / 2 - CAM_Y]
         object_rel_bottom = [object_y + OBJ_HEIGHT / 2 - CAM_Y]
 
-        self.object_tlf = [[object_x - rot_length_inc - CAM_X], object_rel_top, [object_z - rot_width_dec - CAM_Z], [1]]
-        self.object_tlb = [[object_x - rot_length_dec - CAM_X], object_rel_top, [object_z + rot_width_inc - CAM_Z], [1]]
-        self.object_trf = [[object_x + rot_length_dec - CAM_X], object_rel_top, [object_z - rot_width_inc - CAM_Z], [1]]
-        self.object_trb = [[object_x + rot_length_inc - CAM_X], object_rel_top, [object_z + rot_width_dec - CAM_Z], [1]]
+        self.object_tlf = [[object_x - rot_length_inc - CAM_X], object_rel_top, [object_z - rot_width_dec - CAM_Z], [1.0]]
+        self.object_tlb = [[object_x - rot_length_dec - CAM_X], object_rel_top, [object_z + rot_width_inc - CAM_Z], [1.0]]
+        self.object_trf = [[object_x + rot_length_dec - CAM_X], object_rel_top, [object_z - rot_width_inc - CAM_Z], [1.0]]
+        self.object_trb = [[object_x + rot_length_inc - CAM_X], object_rel_top, [object_z + rot_width_dec - CAM_Z], [1.0]]
 
-        self.object_blf = [[object_x - rot_length_inc - CAM_X], object_rel_bottom, [object_z - rot_width_dec - CAM_Z], [1]]
-        self.object_blb = [[object_x - rot_length_dec - CAM_X], object_rel_bottom, [object_z + rot_width_inc - CAM_Z], [1]]
-        self.object_brf = [[object_x + rot_length_dec - CAM_X], object_rel_bottom, [object_z - rot_width_inc - CAM_Z], [1]]
-        self.object_brb = [[object_x + rot_length_inc - CAM_X], object_rel_bottom, [object_z + rot_width_dec - CAM_Z], [1]]
+        self.object_blf = [[object_x - rot_length_inc - CAM_X], object_rel_bottom, [object_z - rot_width_dec - CAM_Z], [1.0]]
+        self.object_blb = [[object_x - rot_length_dec - CAM_X], object_rel_bottom, [object_z + rot_width_inc - CAM_Z], [1.0]]
+        self.object_brf = [[object_x + rot_length_dec - CAM_X], object_rel_bottom, [object_z - rot_width_inc - CAM_Z], [1.0]]
+        self.object_brb = [[object_x + rot_length_inc - CAM_X], object_rel_bottom, [object_z + rot_width_dec - CAM_Z], [1.0]]
 
-        self.proj_lf = [[object_x - rot_length_inc - CAM_X], [0 - CAM_Y], [object_z - rot_width_dec - CAM_Z], [1]]
-        self.proj_lb = [[object_x - rot_length_dec - CAM_X], [0 - CAM_Y], [object_z + rot_width_inc - CAM_Z], [1]]
-        self.proj_rf = [[object_x + rot_length_dec - CAM_X], [0 - CAM_Y], [object_z - rot_width_inc - CAM_Z], [1]]
-        self.proj_rb = [[object_x + rot_length_inc - CAM_X], [0 - CAM_Y], [object_z + rot_width_dec - CAM_Z], [1]]
-        self.proj_center = [[object_x - CAM_X], [0 - CAM_Y], [object_z - CAM_Z], [1]]
+        self.proj_lf = [[object_x - rot_length_inc - CAM_X], [0 - CAM_Y], [object_z - rot_width_dec - CAM_Z], [1.0]]
+        self.proj_lb = [[object_x - rot_length_dec - CAM_X], [0 - CAM_Y], [object_z + rot_width_inc - CAM_Z], [1.0]]
+        self.proj_rf = [[object_x + rot_length_dec - CAM_X], [0 - CAM_Y], [object_z - rot_width_inc - CAM_Z], [1.0]]
+        self.proj_rb = [[object_x + rot_length_inc - CAM_X], [0 - CAM_Y], [object_z + rot_width_dec - CAM_Z], [1.0]]
+        self.proj_center = [[object_x - CAM_X], [0 - CAM_Y], [object_z - CAM_Z], [1.0]]
 
-    def get_pixel_points(self):
-        '''
+    def get_pixel_points(self) -> Any:
+        """
         Gets the pixel coordinate system points of the object and projection of it.
-        '''
+
+        Returns
+        ----------
+        pixel_points: Any:
+            Pixel points of various locations
+        """
         # Gets the pixel coordinate system points of object and projection
         point_o_tlf = self.project_pixel_coord(self.object_tlf)
         point_o_tlb = self.project_pixel_coord(self.object_tlb)
@@ -391,9 +524,9 @@ for z in tqdm(np.logspace(np.log10(Z_SEARCH_MIN), np.log10(Z_SEARCH_MAX), num=Z_
                 point_estimator.get_relative_world_coords(object_x=random.uniform(X_SEARCH_MIN, X_SEARCH_MAX),
                                                           object_y=random.uniform(Y_SEARCH_MIN, Y_SEARCH_MAX),
                                                           object_z=random.uniform(Z_SEARCH_MIN, Z_SEARCH_MAX),
-                                                          rotate_angle=rotate_angle)
+                                                          rotation_angle=rotate_angle)
             else:
-                point_estimator.get_relative_world_coords(object_x=x, object_y=-y, object_z=z, rotate_angle=rotate_angle)
+                point_estimator.get_relative_world_coords(object_x=x, object_y=-y, object_z=z, rotation_angle=rotate_angle)
 
             obj, bbox, proj, proj_mid, front, back, top = point_estimator.get_pixel_points()
             mid_bottom_coord, bbox_width_height, proj_coord_offset = calculate_input_coord(bbox, proj_mid)
@@ -413,7 +546,7 @@ for z in tqdm(np.logspace(np.log10(Z_SEARCH_MIN), np.log10(Z_SEARCH_MAX), num=Z_
                 if DEMO_MODE or DRAW_ENABLED:  # Printing of the results
                     image = np.ones((CAM_PIXEL_HEIGHT, CAM_PIXEL_WIDTH, 3), dtype=np.uint8) * 90
                     connect_and_draw_points(image, bbox, GREEN_COLOR)
-                    connect_and_draw_points(image, proj, YELLOW_COLOR)
+
                     connect_and_draw_points(image, [obj[0]], RED_COLOR)
                     connect_and_draw_points(image, [obj[1]], RED_COLOR)
                     connect_and_draw_points(image, [obj[2]], RED_COLOR)
@@ -423,10 +556,11 @@ for z in tqdm(np.logspace(np.log10(Z_SEARCH_MIN), np.log10(Z_SEARCH_MAX), num=Z_
                     connect_and_draw_points(image, [obj[6]], RED_COLOR)
                     connect_and_draw_points(image, [obj[7]], RED_COLOR)
 
+                    # connect_and_draw_points(image, proj, WHITE_COLOR)
                     connect_and_draw_points(image, proj_mid, RED_COLOR)
-                    connect_and_draw_points(image, front, YELLOW_COLOR)
-                    connect_and_draw_points(image, back, YELLOW_COLOR)
-                    connect_and_draw_points(image, top, YELLOW_COLOR)
+                    connect_and_draw_points(image, front, ORANGE_COLOR)
+                    connect_and_draw_points(image, back, ORANGE_COLOR)
+                    connect_and_draw_points(image, top, ORANGE_COLOR)
                     plt.imshow(image)
                     plt.pause(PAUSE_FIG_TIME)
                     plt.cla()

@@ -3,6 +3,7 @@ import random
 import math
 import json
 import pickle
+from typing import Any, List, Tuple, Optional, Dict
 import numpy as np
 from datetime import datetime
 import torch
@@ -15,15 +16,16 @@ from tqdm import tqdm
 import wandb
 from temp_params import *
 from argparse import ArgumentParser
-from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
+from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, \
+    RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 
 
 DEVICE = "cuda:0"  # Device ('cuda:0' or 'cpu')
 LOGGING_TOOL = 'wandb'  # logging tool ('wandb' or 'tensorboard')
 NUM_WORKERS = 0  # Number of workers to load data
-PIXEL_THRESHOLD_FOR_HIT = 2.0  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
+THRESHOLD_CONST_FOR_HIT_PIXEL = 0.0035  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
-DISTANCE_THRESHOLD_FOR_HIT = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
+THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 FIXED_SEED_NUM = 35  # Seed number
 VAL_COUNT_IN_EPOCH = 1  # Number of validation step in each epoch
@@ -37,30 +39,50 @@ INIT_W_NORMAL = False  # Enables normally distributed weight initialization
 
 
 def seed_worker(worker_id):
-    '''
+    """
     To preserve reproducibility seed worker is used. Taken from (https://pytorch.org/docs/stable/notes/randomness.html)
-    '''
+    """
     worker_seed = torch.initial_seed() % 2 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 
-def str2bool(bool_argument):
-    '''
+def str2bool(bool_string: str) -> bool:
+    """
     Convert strings to booleans
-    '''
-    if bool_argument.lower() == "true":
+
+    Parameters
+    ----------
+    bool_string: str
+        Boolean string value
+
+    Returns
+    ----------
+    dataset_pairs: bool
+        Boolean value
+    """
+    if bool_string.lower() == "true":
         return True
-    elif bool_argument.lower() == "false":
+    elif bool_string.lower() == "false":
         return False
     else:
         raise ValueError
 
 
-def read_input_txt(input_txt_path):
-    '''
+def read_data(input_txt_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
     Read input and target data produced
-    '''
+
+    Parameters
+    ----------
+    input_txt_path: str
+        Txt path of the input
+
+    Returns
+    ----------
+    dataset_pairs: Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Read data from the txt file
+    """
     with open(input_txt_path, 'r') as f:
         input_list = []
         output_list = []
@@ -70,56 +92,143 @@ def read_input_txt(input_txt_path):
                 input_list.append(rows[:4])  # order of inputs: x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height
                 output_list.append(rows[4:6])  # order of outputs: proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom
             if rows_id == 1:
-                image_size = np.array(rows[6:]).astype(np.float32)  # order of image_size:  cam_width cam_height
+                image_size = rows[6:]  # order of image_size:  cam_width cam_height
+        data_read = np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32), np.array(image_size).astype(np.float32)
+        return data_read
 
-    return np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32), image_size
 
-
-def normalize_points(inputs, targets, image_size):
-    '''
+def normalize_points(inputs: np.ndarray, targets: np.ndarray, image_size: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
     Normalize inputs and targets w.r.t the related dimension of the image
-    '''
+
+    Parameters
+    ----------
+    inputs: np.ndarray
+        inputs
+    targets: np.ndarray
+        targets
+    image_size: np.ndarray
+        image_size
+
+    Returns
+    ----------
+    normalized_data: Tuple[np.ndarray, np.ndarray]
+        Normalized data
+    """
     inputs_norm = np.array(inputs / np.append(image_size, image_size)).astype(np.float32)
     targets_norm = np.array(targets / image_size).astype(np.float32)
-    return inputs_norm, targets_norm
+    normalized_data = inputs_norm, targets_norm
+    return normalized_data
 
 
 class Criterion_mse_loss(nn.Module):
-    '''
+    """
     MSE loss class
-    '''
+    """
     def __init__(self):
+        """
+        Initialize MSE loss class.
+        """
         super(Criterion_mse_loss, self).__init__()
         self.loss = nn.MSELoss(reduction='none')
 
-    def forward(self, output, target):
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        The forward pass function of the MSE loss.
+
+        Parameters
+        ----------
+        output: torch.Tensor
+            Model output
+        target: torch.Tensor
+            Target value
+
+        Returns
+        ----------
+        loss: torch.Tensor
+            The loss value
+        """
         loss = self.loss(output, target)
         return loss
 
 
 class Criterion_nth_power_loss(nn.Module):
-    '''
+    """
     n^th power loss class (e.g. for MSE n=2)
-    '''
-    def __init__(self, power_term=2):  # It is advised to use positive even integer for power_term
+    """
+    def __init__(self, power_term: int = 2):  # It is advised to use positive even integer for power_term
+        """
+        Initialize nth power loss class.
+
+        Parameters
+        ----------
+        power_term: int
+            The power term
+        """
+
         super(Criterion_nth_power_loss, self).__init__()
         self.power_term = power_term
 
-    def forward(self, output, target):
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        The forward pass function of the nth power loss.
+
+        Parameters
+        ----------
+        output: torch.Tensor
+            Model output
+        target: torch.Tensor
+            Target value
+
+        Returns
+        ----------
+        loss: torch.Tensor
+            The loss value
+        """
         loss = self.loss(output, target)
         return loss
 
-    def loss(self, output, target):
+    def loss(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        The forward pass function of the nth power loss.
+
+        Parameters
+        ----------
+        output: torch.Tensor
+            Model output
+        target: torch.Tensor
+            Target value
+
+        Returns
+        ----------
+        power_loss: torch.Tensor
+            The loss value
+        """
         dist = output - target
         power_loss = dist.pow(self.power_term).mean(1).pow(1/self.power_term)
         return power_loss
 
 
 class ProjectionTrainer:
-    '''
+    """
     Projection trainer class
-    '''
-    def __init__(self, driver, input_txt_path, distance_map_path, projection_axis):
+    """
+    def __init__(self, driver: str, input_txt_path: str, distance_map_path: str, projection_axis: str):
+        """
+        Initialize the Projection trainer class.
+
+        Parameters
+        ----------
+        driver: str
+            Indicates driver to run the main code
+        input_txt_path: str
+            Path to input txt file
+        distance_map_path: str
+            Path to distance map file
+        projection_axis: str
+            The axis of the projection
+        """
+
         print('Overhead object projection training is started.')
         self.projection_axis = projection_axis
         self.driver = driver
@@ -224,17 +333,27 @@ class ProjectionTrainer:
             self.related_cam_dim = self.image_size[1]
         else:
             self.related_cam_dim = math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
-        self.normalized_hit_thr = PIXEL_THRESHOLD_FOR_HIT / self.related_cam_dim
+        self.normalized_hit_thr = THRESHOLD_CONST_FOR_HIT_PIXEL
 
         self.denorm_coeff = torch.tensor([self.image_size[1], self.image_size[0]], dtype=torch.float32,
                                          device=self.device)
 
         self.best_model_path = None
 
-    def dataset_splitter(self, dataset):
-        '''
+    def dataset_splitter(self, dataset: TensorDataset) -> Tuple[Subset, Subset, Subset]:
+        """
         Splits the dataset into training validation and test parts
-        '''
+
+        Parameters
+        ----------
+        dataset: TensorDataset
+            Train set that needs to be split into training, validation and test sets
+
+        Returns
+        ----------
+        dataset_pairs: Tuple[Subset, Subset, Subset]]
+            Train and validation sets
+        """
 
         input_size = len(dataset)
         val_input_size = int(input_size * self.validation_ratio)
@@ -249,12 +368,18 @@ class ProjectionTrainer:
         val_ds = Subset(dataset, val_indices)
         test_ds = Subset(dataset, test_indices)
         train_ds = Subset(dataset, train_indices)
-        return train_ds, val_ds, test_ds
+        dataset_pairs = train_ds, val_ds, test_ds
+        return dataset_pairs
 
-    def load_distance_map(self, distance_map_path):
-        '''
+    def load_distance_map(self, distance_map_path: str):
+        """
         Load distance map and top-left coordinates from the pickle file loaded.
-        '''
+
+        Parameters
+        ----------
+        distance_map_path: str
+            Path to distance map file
+        """
         with open(distance_map_path, 'rb') as file:
             self.pixel_world_coords, self.dist_map_top_left_coord = pickle.load(file)
             # Since the elevation is fixed in entire area, only the z and x dimension of the distance map is used.
@@ -262,11 +387,17 @@ class ProjectionTrainer:
             # Since we extended the original camera pixel dimensions, we need to use the new top-left location of the new camera.
             self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
 
-    def initialize_dataloaders(self, input_txt_path):
-        '''
+    def initialize_dataloaders(self, input_txt_path: str):
+        """
         Initialize the data loader after the normalization operation
-        '''
-        inputs, targets, self.image_size = read_input_txt(input_txt_path)
+
+        Parameters
+        ----------
+        input_txt_path: str
+            Path to input txt file
+        """
+
+        inputs, targets, self.image_size = read_data(input_txt_path)
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
         if self.projection_axis == 'x':
             targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
@@ -336,10 +467,16 @@ class ProjectionTrainer:
             generator=self.generator,
         )
 
-    def initialize_wandb(self, folder_name):
-        '''
+    def initialize_wandb(self, folder_name: str):
+        """
         Initialize wandb (Weights & Biases) logging
-        '''
+
+        Parameters
+        ----------
+        folder_name: str
+            sub folder name (timestamp) used in wandb run naming.
+        """
+
         config_dict = param_sweep
         self.wandb_run = wandb.init(
             project='overhead_object_projection',
@@ -367,10 +504,20 @@ class ProjectionTrainer:
         for param_count in range(len(self.optimizer.param_groups)):
             wandb.define_metric('learning_rate_' + str(param_count) + '/iteration', summary='none')
 
-    def init_model_optimizer_logger(self, model, optimizer, writer=None):
-        '''
+    def init_model_optimizer_logger(self, model: RegressionModel, optimizer: AdamW, writer: Optional[SummaryWriter] = None):
+        """
         Initialize the model, the optimizer and the logger (wandb or tensorboard)
-        '''
+
+        Parameters
+        ----------
+        model: FgSegNet_v2
+            FgSegNet_v2 model
+        optimizer: AdamW
+            Learning rate optimizer
+        writer: Optional[SummaryWriter]
+            Logger writer either for wandb or tensorflow
+        """
+
         self.model = model.to(self.device)
         self.optimizer = optimizer
         self.writer = writer
@@ -401,16 +548,16 @@ class ProjectionTrainer:
         print('Model is initialized.')
 
     def update_min_loss_summary(self):
-        '''
+        """
         Logs the training loss at the minimum validation loss point
-        '''
+        """
         if self.logging_tool == 'wandb':
             wandb.run.summary['training_loss_at_min_val_loss'] = self.training_loss_at_min_val_loss
 
     def save_log_iteration_training(self):
-        '''
+        """
         Logs the iteration based metrics during the training operations
-        '''
+        """
         if self.logging_tool == 'tensorboard':
             writer = self.writer
             writer.add_scalar('training_loss/iteration', self.iter_average_loss, self.iter_count)
@@ -435,9 +582,9 @@ class ProjectionTrainer:
                 wandb.log({'learning_rate_' + str(param_count) + '/iteration': lr}, step=self.iter_count)
 
     def save_log_iteration_test(self):
-        '''
+        """
         Logs the iteration based metrics during the testing operations
-        '''
+        """
         if self.logging_tool == 'tensorboard':
             writer = self.writer
             writer.add_scalar('mean_test_pixel_error', self.mean_test_pixel_error)
@@ -463,11 +610,30 @@ class ProjectionTrainer:
             )
 
     def save_checkpoint(
-            self, model_state_dict, optimizer_state_dict, epoch, iteration, accuracy, loss, mode=None
+            self, model_state_dict: Dict[str, torch.Tensor], optimizer_state_dict: Dict[Any, Any], epoch: int,
+            iteration: int, accuracy: float, loss: float, mode: Optional[str] = None
     ):
-        '''
-        Save the checkpoint model with additional metadata like
-        '''
+        """
+        Save the checkpoint model with additional metadata
+
+        Parameters
+        ----------
+        model_state_dict: Dict[str, torch.Tensor]
+            State dictionary of the model
+        optimizer_state_dict: Dict[Any, Any]
+           State dictionary of the optimizer
+        epoch: int
+            Epoch count that the saved model is obtained
+        iteration: int
+            Iteration count that the saved model is obtained
+        accuracy: float
+            Measured accuracy of the model
+        loss: float
+            Measured loss of the model
+        mode: Optional[str]
+            Mode denoting the state of the save criteria
+
+        """
         if mode == 'best_accuracy':
             filename = 'best_accuracy_model.pth'
             self.best_model_path = os.path.join(self.model_output_folder_path, filename)
@@ -495,9 +661,9 @@ class ProjectionTrainer:
             print(f'Model and optimizer parameters for the {self.iter_count}\'th iteration are saved in the {filename}.')
 
     def validation(self):
-        '''
+        """
         Applies a validation step
-        '''
+        """
         with torch.no_grad():
             sample_count = 0
             cum_validation_loss = 0
@@ -532,10 +698,22 @@ class ProjectionTrainer:
                 )
             )
 
-    def train_forward(self, object_coords, projection_coord):
-        '''
+    def train_forward(self, object_coords, projection_coord) -> Tuple[float, int]:
+        """
         Applies forward pass, loss calculations and optimizer updates in training phase
-        '''
+
+        Parameters
+        ----------
+        object_coords: torch.Tensor
+            Coordinates of the object
+        projection_coord: torch.Tensor
+            Coordinates of the projection point
+
+        Returns
+        ----------
+        forward_output: Tuple[float, int]
+            Calculated loss value and sample count
+        """
         self.optimizer.zero_grad(set_to_none=True)
         if self.use_mixed_precision:
             with autocast():
@@ -555,19 +733,29 @@ class ProjectionTrainer:
         sample_count = loss.size(dim=0)
         return cum_loss, sample_count
 
-    def step(self, sample):
-        '''
+    def step(self, sample: List[torch.tensor]) -> Tuple[float, int]:
+        """
         Conducts simple conversions and then one-step training pass.
-        '''
+
+        Parameters
+        ----------
+        sample: List[torch.tensor]
+            A sample loaded from dataloader
+
+        Returns
+        ----------
+        forward_output: -> Tuple[float, int]
+            Calculated loss value and sample count
+        """
         obj_coords, projection_coord = sample
         obj_coords = obj_coords.type(torch.FloatTensor).to(self.device, non_blocking=True)
         projection_coord = projection_coord.type(torch.FloatTensor).to(self.device, non_blocking=True)
         return self.train_forward(obj_coords, projection_coord)
 
     def run_validation(self):
-        '''
+        """
         Main validation function.
-        '''
+        """
         self.model.eval()
         self.validation()
 
@@ -603,9 +791,9 @@ class ProjectionTrainer:
         self.save_log_iteration_training()
 
     def run_train(self):
-        '''
+        """
         Main train function.
-        '''
+        """
         for self.epoch_count in range(self.init_epoch_count, self.max_epoch + 1):
             epoch_loss = 0
             iter_loss = 0
@@ -681,17 +869,17 @@ class ProjectionTrainer:
         print('Best validation accuracy: {:6f}'.format(self.best_accuracy))
 
     def read_model_file(self):
-        '''
+        """
         Reads the printed best model.
-        '''
+        """
         print('-' * 50)
         print("Reading the projection estimation model ")
         self.checkpoint = torch.load(self.best_model_path, map_location=torch.device(self.device))
 
     def run_test(self):
-        '''
+        """
         Main test function.
-        '''
+        """
         if self.best_model_path is not None:
             self.read_model_file()
             self.model.load_state_dict(self.checkpoint["model_state_dict"])
@@ -731,7 +919,7 @@ class ProjectionTrainer:
                                   self.pixel_world_coords[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0], :]
 
                     abs_diffs_distance = torch.linalg.norm(dist, dim=1)
-                    hit_count_distance = torch.sum((abs_diffs_distance <= DISTANCE_THRESHOLD_FOR_HIT).to(int))
+                    hit_count_distance = torch.sum((abs_diffs_distance <= THRESHOLD_FOR_HIT_DISTANCE).to(int))
                     abs_diffs_pixel = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                     hit_count_pixel = torch.sum((abs_diffs_pixel <= self.normalized_hit_thr).to(int))
                     cum_test_hit_count_pixel += hit_count_pixel.item()
