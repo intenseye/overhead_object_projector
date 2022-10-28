@@ -6,14 +6,13 @@ from typing import List, Tuple, Any, Union
 import pickle
 from configparser import ConfigParser
 import numpy as np
-import cv2
 import matplotlib.pyplot as plt
 from numpy import ndarray
 from tqdm import tqdm
 from argparse import ArgumentParser
+from utils import str2bool, read_settings, connect_and_draw_points, cotan, apply_radial_dist
 
 FIXED_SEED_NUM: int = 35  # Seed number
-LINE_THICKNESS: int = 2  # Line thickness used for the drawing operations.
 GREEN_COLOR = (0, 255, 0)  # Green color code
 ORANGE_COLOR = (255, 200, 0)  # Orange color code
 RED_COLOR = (255, 0, 0)  # Red color code
@@ -21,129 +20,6 @@ WHITE_COLOR = (255, 255, 255)  # White color code
 PAUSE_FIG_TIME = 0.01  # Delay time applied during the consecutive drawings
 HALF_PIXEL_SIZE = 1 / 2
 CAM_REGION_EXPAND_RATIO = 3.0  # Expanding ratio of original image. Odd integer number is advised.
-
-
-def str2bool(bool_string: str) -> bool:
-    """
-    Convert strings to booleans
-
-    Parameters
-    ----------
-    bool_string: str
-        Boolean string value
-
-    Returns
-    ----------
-    dataset_pairs: bool
-        Boolean value
-    """
-    if bool_string.lower() == "true":
-        return True
-    elif bool_string.lower() == "false":
-        return False
-    else:
-        raise ValueError
-
-
-def read_settings(path: str) -> ConfigParser:
-    """
-    Read settings from an ini file.
-
-    Parameters
-    ----------
-    path: str
-        Path to the settings file.
-
-    Returns
-    ----------
-    config: ConfigParser
-        Object including the parameters set in the settings file
-    """
-    config = ConfigParser()
-    config.read(path)
-    return config
-
-
-def connect_and_draw_points(input_image: np.ndarray, points: List[Tuple[float]], color: Tuple[int, int, int]):
-    """
-    Connects and draw points. If the points includes only one point then a marker placed to the point. Otherwise, the
-    adjacent points are connected with line.
-
-    Parameters
-    ----------
-    input_image: np.ndarray
-        Input image
-    points: List[Tuple[float]]
-        Point to be used to draw on image
-    color: Tuple[int]
-        Color used in the drawings.
-
-    """
-    if len(points) == 1:
-        cv2.drawMarker(input_image, np.round(points[0]).astype(int), color=color, markerType=cv2.MARKER_STAR,
-                       thickness=LINE_THICKNESS)
-    elif len(points) > 1:
-        for i in range(len(points)):
-            if i == len(points) - 1:
-                cv2.line(input_image, np.round(points[i]).astype(int), np.round(points[0]).astype(int), color=color,
-                         thickness=LINE_THICKNESS)
-            else:
-                cv2.line(input_image, np.round(points[i]).astype(int), np.round(points[i + 1]).astype(int), color=color,
-                         thickness=LINE_THICKNESS)
-    else:
-        print('Given point list is empty!')
-
-
-def cotan(radians: float) -> float:
-    """
-    Calculate cotangent of an angle given in radians.
-
-    Parameters
-    ----------
-    radians: float
-        Value of the given angle in radians
-
-    Returns
-    ----------
-    cotan_value: float
-        Cotangent value of the given angle
-
-    """
-    cotan_value = 1 / math.tan(radians)
-    return cotan_value
-
-
-def apply_radial_dist(point: np.ndarray, cx: float, cy: float, k_1: float, k_2: float) -> np.ndarray:
-    """
-    Transform a point in camera using radial distortion coefficients.
-
-    Parameters
-    ----------
-    point: np.ndarray
-        Location of the point in image space before the distortion operation.
-    cx: float
-        Principal point location in the horizontal axis of the camera
-    cy: float
-        Principal point location in the vertical axis of the camera
-    k_1: float
-        k1 value of radial distortion modeling
-    k_2: float
-        k2 value of radial distortion modeling
-
-    Returns
-    ----------
-    distorted_point: np.ndarray
-        Location of the point in image space after applying the distortion.
-    """
-    norm_dist_x, norm_dist_y = (np.array(point) - np.array((cx, cy))) / np.array((cx, cy))
-    r2 = norm_dist_x ** 2 + norm_dist_y ** 2
-    distorted_point = np.array([-10000, -10000])
-    distortion_coeff_x = 1 + k_1 * r2 + k_2 * r2 ** 2
-    distortion_coeff_y = 1 + k_1 * r2 + k_2 * r2 ** 2
-    if distortion_coeff_x > 0 and distortion_coeff_y > 0:
-        distorted_point = np.array((norm_dist_x * distortion_coeff_x, norm_dist_y * distortion_coeff_y)) * np.array(
-            (cx, cy)) + np.array((cx, cy))
-    return distorted_point
 
 
 def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[Union[float, Any], ndarray, Any]:

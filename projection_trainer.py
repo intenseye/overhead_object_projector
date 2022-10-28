@@ -4,21 +4,23 @@ import math
 import json
 import pickle
 from typing import Any, List, Tuple, Optional, Dict
-import numpy as np
+from argparse import ArgumentParser
+from configparser import ConfigParser
 from datetime import datetime
+import numpy as np
+from tqdm import tqdm
 import torch
-import torch.nn as nn
 from torch.optim import AdamW, lr_scheduler
 from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import TensorDataset, DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 import wandb
-from temp_params import *
-from argparse import ArgumentParser
-from configparser import ConfigParser
 from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, \
     RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
+from utils import str2bool, read_settings, seed_worker
+from loss import Criterion_mse_loss, Criterion_nth_power_loss
+from temp_params import *
+
 
 NUM_WORKERS = 0  # Number of workers to load data
 THRESHOLD_CONST_FOR_HIT_PIXEL = 0.0035  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
@@ -26,56 +28,6 @@ THRESHOLD_CONST_FOR_HIT_PIXEL = 0.0035  # Hit distance threshold between the pre
 THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 FIXED_SEED_NUM = 35  # Seed number
-
-
-def seed_worker(worker_id):
-    """
-    To preserve reproducibility seed worker is used. Taken from (https://pytorch.org/docs/stable/notes/randomness.html)
-    """
-    worker_seed = torch.initial_seed() % 2 ** 32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-
-def str2bool(bool_string: str) -> bool:
-    """
-    Convert strings to booleans
-
-    Parameters
-    ----------
-    bool_string: str
-        Boolean string value
-
-    Returns
-    ----------
-    dataset_pairs: bool
-        Boolean value
-    """
-    if bool_string.lower() == "true":
-        return True
-    elif bool_string.lower() == "false":
-        return False
-    else:
-        raise ValueError
-
-
-def read_settings(path: str) -> ConfigParser:
-    """
-    Read settings from an ini file.
-
-    Parameters
-    ----------
-    path: str
-        Path to the settings file.
-
-    Returns
-    ----------
-    config: ConfigParser
-        Object including the parameters set in the settings file
-    """
-    config = ConfigParser()
-    config.read(path)
-    return config
 
 
 def read_data(input_txt_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -128,94 +80,6 @@ def normalize_points(inputs: np.ndarray, targets: np.ndarray, image_size: np.nda
     targets_norm = np.array(targets / image_size).astype(np.float32)
     normalized_data = inputs_norm, targets_norm
     return normalized_data
-
-
-class Criterion_mse_loss(nn.Module):
-    """
-    MSE loss class
-    """
-    def __init__(self):
-        """
-        Initialize MSE loss class.
-        """
-        super(Criterion_mse_loss, self).__init__()
-        self.loss = nn.MSELoss(reduction='none')
-
-    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        The forward pass function of the MSE loss.
-
-        Parameters
-        ----------
-        output: torch.Tensor
-            Model output
-        target: torch.Tensor
-            Target value
-
-        Returns
-        ----------
-        loss: torch.Tensor
-            The loss value
-        """
-        loss = self.loss(output, target)
-        return loss
-
-
-class Criterion_nth_power_loss(nn.Module):
-    """
-    n^th power loss class (e.g. for MSE n=2)
-    """
-    def __init__(self, power_term: int = 2):  # It is advised to use positive even integer for power_term
-        """
-        Initialize nth power loss class.
-
-        Parameters
-        ----------
-        power_term: int
-            The power term
-        """
-
-        super(Criterion_nth_power_loss, self).__init__()
-        self.power_term = power_term
-
-    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        The forward pass function of the nth power loss.
-
-        Parameters
-        ----------
-        output: torch.Tensor
-            Model output
-        target: torch.Tensor
-            Target value
-
-        Returns
-        ----------
-        loss: torch.Tensor
-            The loss value
-        """
-        loss = self.loss(output, target)
-        return loss
-
-    def loss(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        The forward pass function of the nth power loss.
-
-        Parameters
-        ----------
-        output: torch.Tensor
-            Model output
-        target: torch.Tensor
-            Target value
-
-        Returns
-        ----------
-        power_loss: torch.Tensor
-            The loss value
-        """
-        dist = output - target
-        power_loss = dist.pow(self.power_term).mean(1).pow(1/self.power_term)
-        return power_loss
 
 
 class ProjectionTrainer:
@@ -628,7 +492,7 @@ class ProjectionTrainer:
                     'mean_test_pixel_error': self.mean_test_pixel_error,
                     'max_test_pixel_error': self.max_test_pixel_error,
                     'test_accuracy_pixel': self.test_accuracy_pixel,
-                    
+
                     'mean_test_distance_error': self.mean_test_distance_error,
                     'max_test_distance_error': self.max_test_distance_error,
                     'test_accuracy_distance': self.test_accuracy_distance,
