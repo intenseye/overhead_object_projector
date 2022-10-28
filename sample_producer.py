@@ -30,7 +30,6 @@ RADIAL_DIST_ENABLED: bool = True
 K_1 = -0.05  # k1 parameter used for radial distribution
 K_2 = 0.0  # k2 parameter used for radial distribution
 RANDOM_DEVIATION_ENABLED: bool = True  # Enables random deviation for each edge od bounding box of the object.
-# TODO: We can add deviation to projection points too simulate the effect of marking error too.
 DEVIATON_SIGMA = 1.0  # Enables random deviation for each edge od bounding box of the object.
 ROTATE_ANGLE_MIN = -10.0  # Random rotation angle lower limit (in degrees)
 ROTATE_ANGLE_MAX = 10.0  # Random rotation angle upper limit (in degrees)
@@ -59,8 +58,8 @@ SEARCH_DISTANCE_STEP = 0.5  # lower limit for the position of the object center 
 
 EXPORT: bool = True  # Enables data exporting
 PATH_TO_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/overhead_object_projector'  # path to output folder
-PROJECTION_DATA_PATH = 'inputs_outputs_corrected.txt'  # relative path to projection data
-AUXILIARY_DATA_PATH = 'auxiliary_data_corrected.pickle'  # relative path to auxiliary data
+PROJECTION_DATA_PATH = 'inputs_outputs_corrected_mod.txt'  # relative path to projection data
+AUXILIARY_DATA_PATH = 'auxiliary_data_corrected_mod.pickle'  # relative path to auxiliary data
 
 
 def connect_and_draw_points(input_image: np.ndarray, points: List[Tuple[float]], color: Tuple[int, int, int]):
@@ -481,8 +480,8 @@ class PointEstimatorProjection:
         # Add random deviation to the location of each edge of the bounding box to simulate the error of object detector
         if RANDOM_DEVIATION_ENABLED:
             top_dev = random.gauss(0, DEVIATON_SIGMA)
-            bottom_dev = random.gauss(0, DEVIATON_SIGMA)
             left_dev = random.gauss(0, DEVIATON_SIGMA)
+            bottom_dev = random.gauss(0, DEVIATON_SIGMA)
             right_dev = random.gauss(0, DEVIATON_SIGMA)
 
             bbox_tl = [bbox_tl[0] + left_dev, bbox_tl[1] + top_dev]
@@ -491,8 +490,14 @@ class PointEstimatorProjection:
             bbox_bl = [bbox_bl[0] + left_dev, bbox_bl[1] + bottom_dev]
 
         bbox_points = [bbox_tl, bbox_tr, bbox_br, bbox_bl]
-
         proj_points = [point_p_lb, point_p_rb, point_p_rf, point_p_lf]
+
+        # Add random deviation to the location of center projection points to simulate the effect of marking error too.
+        if RANDOM_DEVIATION_ENABLED:
+            proj_cent_dev_x = random.gauss(0, DEVIATON_SIGMA)
+            proj_cent_dev_y = random.gauss(0, DEVIATON_SIGMA)
+            point_p_cen = [point_p_cen[0] + proj_cent_dev_x, point_p_cen[1] + proj_cent_dev_y]
+
         proj_mid_point = [point_p_cen]
 
         # Gets the facade points for visual representation

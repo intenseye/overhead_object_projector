@@ -964,9 +964,9 @@ if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'], default='manual')
     parser.add_argument("--input_txt_path", help="Path to input txt file.",
-                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected.txt')
+                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected_mod.txt')
     parser.add_argument("--distance_map_path", help="Path distance map.",
-                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_corrected.pickle')
+                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_corrected_mod.pickle')
     parser.add_argument("--projection_axis", help="Indicates axis of the projection estimation", choices=['x', 'y', 'both'], default='both')
 
     args = parser.parse_args()
