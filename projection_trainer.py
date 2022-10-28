@@ -16,26 +16,16 @@ from tqdm import tqdm
 import wandb
 from temp_params import *
 from argparse import ArgumentParser
+from configparser import ConfigParser
 from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, \
     RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 
-
-DEVICE = "cuda:0"  # Device ('cuda:0' or 'cpu')
-LOGGING_TOOL = 'wandb'  # logging tool ('wandb' or 'tensorboard')
 NUM_WORKERS = 0  # Number of workers to load data
 THRESHOLD_CONST_FOR_HIT_PIXEL = 0.0035  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 FIXED_SEED_NUM = 35  # Seed number
-VAL_COUNT_IN_EPOCH = 1  # Number of validation step in each epoch
-LOSS_DECREASE_COUNT = 4   # Number of loss decreasing used for StepLR type scheduler
-LOSS_DECREASE_GAMMA = 0.1  # Gamma value used for StepLR type scheduler
-LOSS_PATIENCE = 2  # patience value used for ReduceLROnPlateau type scheduler
-MAIN_OUTPUT_FOLDER = '/home/poyraz/intenseye/input_outputs/overhead_object_projector/'
-USE_BATCH_NORM = False  # Enables batch normalization
-BATCH_MOMENTUM = 0.1  # Batch momentum value used for the batch normalization layers
-INIT_W_NORMAL = False  # Enables normally distributed weight initialization
 
 
 def seed_worker(worker_id):
@@ -67,6 +57,25 @@ def str2bool(bool_string: str) -> bool:
         return False
     else:
         raise ValueError
+
+
+def read_settings(path: str) -> ConfigParser:
+    """
+    Read settings from an ini file.
+
+    Parameters
+    ----------
+    path: str
+        Path to the settings file.
+
+    Returns
+    ----------
+    config: ConfigParser
+        Object including the parameters set in the settings file
+    """
+    config = ConfigParser()
+    config.read(path)
+    return config
 
 
 def read_data(input_txt_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -213,7 +222,7 @@ class ProjectionTrainer:
     """
     Projection trainer class
     """
-    def __init__(self, driver: str, input_txt_path: str, distance_map_path: str, projection_axis: str):
+    def __init__(self, driver: str, config: ConfigParser):
         """
         Initialize the Projection trainer class.
 
@@ -221,31 +230,27 @@ class ProjectionTrainer:
         ----------
         driver: str
             Indicates driver to run the main code
-        input_txt_path: str
-            Path to input txt file
-        distance_map_path: str
-            Path to distance map file
-        projection_axis: str
-            The axis of the projection
+        config: ConfigParser
+            Configuration object containing the settings.
         """
-
+        self.initialize_config(config)
         print('Overhead object projection training is started.')
-        self.projection_axis = projection_axis
+
         self.driver = driver
         self.network_size = param_sweep['network_size']  # Defines the size of the networks.
 
         if self.network_size == 'xl':
-            RegressionModel = RegressionModelXLarge
+            centprojnet = RegressionModelXLarge
         elif self.network_size == 'l':
-            RegressionModel = RegressionModelLarge
+            centprojnet = RegressionModelLarge
         elif self.network_size == 'm':
-            RegressionModel = RegressionModelMedium
+            centprojnet = RegressionModelMedium
         elif self.network_size == 's':
-            RegressionModel = RegressionModelSmall
+            centprojnet = RegressionModelSmall
         elif self.network_size == 'xs':
-            RegressionModel = RegressionModelXSmall
+            centprojnet = RegressionModelXSmall
         elif self.network_size == 'linear':
-            RegressionModel = RegressionModelLinear
+            centprojnet = RegressionModelLinear
         else:
             raise ValueError("Invalid network size %s" % repr(self.network_size))
 
@@ -254,11 +259,11 @@ class ProjectionTrainer:
         self.loss_function = param_sweep['loss_function_reg']  # Defines the loss function
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
         print('Model and log time stamp folder: ' + str(time_stamp))
-        self.device = torch.device(DEVICE)
-        self.logging_tool = LOGGING_TOOL
+        self.device = torch.device(self.device)
+        self.logging_tool = self.logging_tool
         self.num_workers = NUM_WORKERS
-        self.model_output_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'models', self.driver, time_stamp)  # Model output folder
-        self.log_folder_path = os.path.join(MAIN_OUTPUT_FOLDER, 'logs', self.driver, time_stamp)  # Log folder
+        self.model_output_folder_path = os.path.join(self.main_output_folder, 'models', self.driver, time_stamp)  # Model output folder
+        self.log_folder_path = os.path.join(self.main_output_folder, 'logs', self.driver, time_stamp)  # Log folder
 
         self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
         self.validation_ratio = float(param_sweep['validation_ratio'])  # Validation ratio to be used in data splitting
@@ -307,13 +312,13 @@ class ProjectionTrainer:
         self.min_val_loss = math.inf
         self.training_loss_at_min_val_loss = math.inf
 
-        self.load_distance_map(distance_map_path)
-        self.initialize_dataloaders(input_txt_path)
-        model = RegressionModel(init_w_normal=INIT_W_NORMAL, projection_axis=self.projection_axis,
-                                use_batch_norm=USE_BATCH_NORM, batch_momentum=BATCH_MOMENTUM,
-                                activation=self.activation)
+        self.load_distance_map(self.input_auxiliary_data_path)
+        self.initialize_dataloaders(self.input_projection_data_path)
+        model = centprojnet(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis,
+                            use_batch_norm=self.use_batch_norm, batch_momentum=self.batch_momentum,
+                            activation=self.activation)
 
-        self.loss_plot_period = len(self.train_loader)//VAL_COUNT_IN_EPOCH
+        self.loss_plot_period = len(self.train_loader)//self.val_count_in_epoch
         self.model_save_period = 0
         if int(len(self.train_ds) * self.validation_ratio) == 0:
             self.model_save_period = len(self.train_loader)
@@ -327,9 +332,9 @@ class ProjectionTrainer:
             self.init_model_optimizer_logger(model, optimizer)
             self.initialize_wandb(time_stamp)
 
-        if projection_axis == 'x':
+        if self.projection_axis == 'x':
             self.related_cam_dim = self.image_size[0]
-        elif projection_axis == 'y':
+        elif self.projection_axis == 'y':
             self.related_cam_dim = self.image_size[1]
         else:
             self.related_cam_dim = math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
@@ -337,8 +342,30 @@ class ProjectionTrainer:
 
         self.denorm_coeff = torch.tensor([self.image_size[1], self.image_size[0]], dtype=torch.float32,
                                          device=self.device)
-
         self.best_model_path = None
+
+    def initialize_config(self, config: ConfigParser):
+        """
+        Initialize and set the config fields.
+
+        Parameters
+        ----------
+        config: ConfigParser
+            Configuration object
+        """
+        self.device = config.get("projection_trainer", "DEVICE")
+        self.logging_tool = config.get("projection_trainer", "LOGGING_TOOL")
+        self.main_output_folder = config.get("projection_trainer", "MAIN_OUTPUT_FOLDER")
+        self.init_w_normal = str2bool(config.get("projection_trainer", "INIT_W_NORMAL"))
+        self.use_batch_norm = str2bool(config.get("projection_trainer", "USE_BATCH_NORM"))
+        self.batch_momentum = float(config.get("projection_trainer", "BATCH_MOMENTUM"))
+        self.val_count_in_epoch = int(float(config.get("projection_trainer", "VAL_COUNT_IN_EPOCH")))
+        self.loss_patience = int(float(config.get("projection_trainer", "LOSS_PATIENCE")))
+        self.loss_decrease_count = int(float(config.get("projection_trainer", "LOSS_DECREASE_COUNT")))
+        self.loss_decrease_gamma = float(config.get("projection_trainer", "LOSS_DECREASE_GAMMA"))
+        self.input_projection_data_path = config.get("projection_trainer", "INPUT_PROJECTION_DATA_PATH")
+        self.input_auxiliary_data_path = config.get("projection_trainer", "INPUT_AUXILIARY_DATA_PATH")
+        self.projection_axis = config.get("projection_trainer", "PROJECTION_AXIS")
 
     def dataset_splitter(self, dataset: TensorDataset) -> Tuple[Subset, Subset, Subset]:
         """
@@ -529,7 +556,7 @@ class ProjectionTrainer:
 
         total_steps = self.max_epoch * len(self.train_loader)
         if self.scheduler_type == 'reduce_plateau':
-            self.model_lr_scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=LOSS_PATIENCE, verbose=True)
+            self.model_lr_scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=self.loss_patience, verbose=True)
         elif self.scheduler_type == 'lambda':  # time-based decay lambda function is used.
             lambda_lr = lambda iter_count: (float)(max(total_steps - iter_count, 0)) / (float)(total_steps)
             self.model_lr_scheduler = lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda_lr)
@@ -538,9 +565,9 @@ class ProjectionTrainer:
                 self.optimizer, total_steps=total_steps, max_lr=self.init_learning_rate
             )
         elif self.scheduler_type == 'step':
-            lr_decrease_count = LOSS_DECREASE_COUNT
+            lr_decrease_count = self.loss_decrease_count
             lr_dec_period = total_steps // (lr_decrease_count + 1)
-            self.model_lr_scheduler = lr_scheduler.StepLR(self.optimizer, step_size=lr_dec_period, gamma=LOSS_DECREASE_GAMMA)
+            self.model_lr_scheduler = lr_scheduler.StepLR(self.optimizer, step_size=lr_dec_period, gamma=self.loss_decrease_gamma)
 
         if self.use_mixed_precision:
             self.scaler = GradScaler()
@@ -963,17 +990,11 @@ class ProjectionTrainer:
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'], default='manual')
-    parser.add_argument("--input_txt_path", help="Path to input txt file.",
-                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/inputs_outputs_corrected_mod.txt')
-    parser.add_argument("--distance_map_path", help="Path distance map.",
-                        default='/home/poyraz/intenseye/input_outputs/overhead_object_projector/auxiliary_data_corrected_mod.pickle')
-    parser.add_argument("--projection_axis", help="Indicates axis of the projection estimation", choices=['x', 'y', 'both'], default='both')
+    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings.ini")
 
     args = parser.parse_args()
-    driver = args.driver
-    input_txt_path = args.input_txt_path
-    projection_axis = args.projection_axis
-    distance_map_path = args.distance_map_path
-    proj_trainer = ProjectionTrainer(driver=driver, input_txt_path=input_txt_path, distance_map_path=distance_map_path, projection_axis=projection_axis)
+    driver_ = args.driver
+    config_ = read_settings(args.settings_path)
+    proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
     proj_trainer.run_train()
     proj_trainer.run_test()
