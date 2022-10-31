@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 
-LINE_THICKNESS: int = 2  # Line thickness used for the drawing operations.
+LINE_THICKNESS: int = 1  # Line thickness used for the drawing operations.
 
 
 def str2bool(bool_string: str) -> bool:

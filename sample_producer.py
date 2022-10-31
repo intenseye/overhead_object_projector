@@ -12,12 +12,11 @@ from tqdm import tqdm
 from argparse import ArgumentParser
 from utils import str2bool, read_settings, connect_and_draw_points, cotan, apply_radial_dist
 
-FIXED_SEED_NUM: int = 35  # Seed number
+FIXED_SEED_NUM = 35  # Seed number
 GREEN_COLOR = (0, 255, 0)  # Green color code
 ORANGE_COLOR = (255, 200, 0)  # Orange color code
 RED_COLOR = (255, 0, 0)  # Red color code
 WHITE_COLOR = (255, 255, 255)  # White color code
-PAUSE_FIG_TIME = 0.01  # Delay time applied during the consecutive drawings
 HALF_PIXEL_SIZE = 1 / 2
 CAM_REGION_EXPAND_RATIO = 3.0  # Expanding ratio of original image. Odd integer number is advised.
 
@@ -75,7 +74,8 @@ class PointEstimatorProjection:
         self.pixel_world_coords = np.ones((self.extended_height, self.extended_width, 3), dtype=float) * sys.float_info.max
 
         self.calc_projection_matrix()
-        self.calc_pixel_world_coordinates()
+        if self.export:
+            self.calc_pixel_world_coordinates()
 
     def initialize_config(self, config: ConfigParser):
         """
@@ -104,6 +104,7 @@ class PointEstimatorProjection:
         self.deviation_sigma = float(config.get("sample_producer", "DEVIATON_SIGMA"))
         self.k_1 = float(config.get("sample_producer", "K_1"))
         self.k_2 = float(config.get("sample_producer", "K_2"))
+        self.export = str2bool(config.get("sample_producer", "EXPORT"))
 
     def calc_camera_calibration_matrix(self) -> np.ndarray:
         """
@@ -460,6 +461,7 @@ def produce_data(config: ConfigParser):
     cam_width_heights = []
     point_estimator = PointEstimatorProjection(config)
 
+    PAUSE_FIG_TIME = 0.01  # Delay time applied during the consecutive drawings
     if demo_mode:  # For the demo mode delay time is increased for the sake of easy monitoring
         PAUSE_FIG_TIME = 0.50
 
