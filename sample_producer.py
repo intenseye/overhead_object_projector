@@ -38,8 +38,11 @@ def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) 
         Input coordinates to be fed to the projection point estimator.
     """
     bbox_bottom_center = ((np.array(bbox[2]) + np.array(bbox[3])) / 2)
+    # bbox_bottom_center: (x coord of bbox_bottom_center, y coord bbox_bottom_center)
     bbox_width_height = np.array((bbox[1][0] - bbox[0][0], bbox[2][1] - bbox[1][1]))
+    # bbox_width_height: (width of bbox, height of bbox)
     proj_wrt_bbox_bottom_center = proj_mid[0] - bbox_bottom_center
+    # proj_wrt_bbox_bottom_center: (x coord of projection - x coord of bbox_bottom_center, y coord of projection - y coord of bbox_bottom_center)
     input_coords = bbox_bottom_center, bbox_width_height, proj_wrt_bbox_bottom_center
     return input_coords
 
