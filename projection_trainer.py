@@ -3,6 +3,7 @@ import random
 import math
 import json
 import pickle
+import sys
 from typing import Any, List, Tuple, Optional, Dict
 from argparse import ArgumentParser
 from configparser import ConfigParser
@@ -30,32 +31,56 @@ THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the predictio
 FIXED_SEED_NUM = 35  # Seed number
 
 
-def read_data(input_txt_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def read_data(input_json_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Read input and target data produced
 
     Parameters
     ----------
-    input_txt_path: str
-        Txt path of the input
+    input_json_path: str
+        Path to input file
 
     Returns
     ----------
     dataset_pairs: Tuple[np.ndarray, np.ndarray, np.ndarray]
         Read data from the txt file
     """
-    with open(input_txt_path, 'r') as f:
-        input_list = []
-        output_list = []
-        image_size = None
-        for rows_id, rows in enumerate(raw.strip().split() for raw in f):
-            if rows_id > 0:
-                input_list.append(rows[:4])  # order of inputs: x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height
-                output_list.append(rows[4:6])  # order of outputs: proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom
-            if rows_id == 1:
-                image_size = rows[6:]  # order of image_size:  cam_width cam_height
-        data_read = np.array(input_list).astype(np.float32), np.array(output_list).astype(np.float32), np.array(image_size).astype(np.float32)
+    with open(input_json_path, 'r') as f:
+        data = f.read()
+        file_content = json.loads(data)
+        crane_positions = []
+        projection_positions = []
+        image_dims_unique = None
+        for key in file_content:
+            current_frame_info = file_content[key]
+            if current_frame_info["any_labelled"] is True:
+                for object_info in current_frame_info["objects"]:
+                    if object_info["projection"]["x"] != -1:
+                        crane_position = [object_info["bbox_coords"]["x_l"], object_info["bbox_coords"]["y_t"],
+                                          object_info["bbox_coords"]["x_r"], object_info["bbox_coords"]["y_b"]]
+                        crane_positions.append(crane_position)
+                        projection_positions.append([object_info["projection"]["x"], object_info["projection"]["y"]])
+                        if image_dims_unique is None:
+                            image_dims_unique = [current_frame_info["image_dimensions"]["width"], current_frame_info["image_dimensions"]["height"]]
+                        else:
+                            image_dims = [current_frame_info["image_dimensions"]["width"], current_frame_info["image_dimensions"]["height"]]
+                            if image_dims[0] != image_dims_unique[0] or image_dims[1] != image_dims_unique[1]:
+                                print('All image dimensions must be the same!')
+                                sys.exit()
+
+        data_read = np.array(crane_positions).astype(np.float32), np.array(projection_positions).astype(np.float32), np.array(image_dims).astype(np.float32)
         return data_read
+
+
+def transform_data(inputs, targets):
+    inputs_transformed = np.copy(inputs)
+    inputs_transformed[:, 0] = (inputs[:, 0] + inputs[:, 2]) / 2
+    inputs_transformed[:, 1] = inputs[:, 3]
+    inputs_transformed[:, 2] = inputs[:, 2] - inputs[:, 0]
+    inputs_transformed[:, 3] = inputs[:, 3] - inputs[:, 1]
+
+    targets_transformed = targets - inputs_transformed[:, :2]
+    return inputs_transformed, targets_transformed
 
 
 def normalize_points(inputs: np.ndarray, targets: np.ndarray, image_size: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -146,7 +171,7 @@ class ProjectionTrainer:
         if str(self.device) != 'cpu':
             torch.cuda.set_device(self.device)
         # fixed seed operation for reproducibility
-        if self.fixed_partition_seed:
+        if self.fixed_partition_seed is True:
             os.environ['PYTHONHASHSEED'] = str(FIXED_SEED_NUM)
             random.seed(FIXED_SEED_NUM)
             np.random.seed(FIXED_SEED_NUM)
@@ -173,11 +198,14 @@ class ProjectionTrainer:
         self.least_loss = math.inf
         self.init_epoch_count = 1
         self.iter_count = 0
-        self.min_val_loss = math.inf
         self.training_loss_at_min_val_loss = math.inf
 
-        self.load_distance_map(self.input_auxiliary_data_path)
-        self.initialize_dataloaders(self.input_projection_data_path)
+        self.is_dist_map_enabled = False
+        if os.path.isfile(self.auxiliary_data_path):
+            self.load_distance_map(self.auxiliary_data_path)
+            self.is_dist_map_enabled = True
+
+        self.initialize_dataloaders(self.coordinates_file)
         model = centprojnet(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis,
                             use_batch_norm=self.use_batch_norm, batch_momentum=self.batch_momentum,
                             activation=self.activation)
@@ -218,6 +246,7 @@ class ProjectionTrainer:
             Configuration object
         """
         self.device = config.get("projection_trainer", "DEVICE")
+        self.apply_coord_transform = str2bool(config.get("projection_trainer", "APPLY_COORD_TRANSFORM"))
         self.logging_tool = config.get("projection_trainer", "LOGGING_TOOL")
         self.main_output_folder = config.get("projection_trainer", "MAIN_OUTPUT_FOLDER")
         self.init_w_normal = str2bool(config.get("projection_trainer", "INIT_W_NORMAL"))
@@ -227,8 +256,9 @@ class ProjectionTrainer:
         self.loss_patience = int(float(config.get("projection_trainer", "LOSS_PATIENCE")))
         self.loss_decrease_count = int(float(config.get("projection_trainer", "LOSS_DECREASE_COUNT")))
         self.loss_decrease_gamma = float(config.get("projection_trainer", "LOSS_DECREASE_GAMMA"))
-        self.input_projection_data_path = config.get("projection_trainer", "INPUT_PROJECTION_DATA_PATH")
-        self.input_auxiliary_data_path = config.get("projection_trainer", "INPUT_AUXILIARY_DATA_PATH")
+        input_folder_path = config.get("projection_trainer", "INPUT_FOLDER_PATH")
+        self.coordinates_file = os.path.join(input_folder_path, 'coordinates.json')
+        self.auxiliary_data_path = os.path.join(input_folder_path, 'auxiliary_data.pickle')
         self.projection_axis = config.get("projection_trainer", "PROJECTION_AXIS")
 
     def dataset_splitter(self, dataset: TensorDataset) -> Tuple[Subset, Subset, Subset]:
@@ -278,17 +308,19 @@ class ProjectionTrainer:
             # Since we extended the original camera pixel dimensions, we need to use the new top-left location of the new camera.
             self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
 
-    def initialize_dataloaders(self, input_txt_path: str):
+    def initialize_dataloaders(self, input_json_path: str):
         """
         Initialize the data loader after the normalization operation
 
         Parameters
         ----------
-        input_txt_path: str
-            Path to input txt file
+        input_json_path: str
+            Path to input file
         """
 
-        inputs, targets, self.image_size = read_data(input_txt_path)
+        inputs, targets, self.image_size = read_data(input_json_path)
+        if self.apply_coord_transform is True:
+            inputs, targets = transform_data(inputs, targets)
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
         if self.projection_axis == 'x':
             targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
@@ -304,7 +336,7 @@ class ProjectionTrainer:
         targets_norm = torch.from_numpy(targets_norm).float()
         self.train_ds = TensorDataset(inputs_norm, targets_norm)
         self.generator = torch.Generator()
-        if self.fixed_partition_seed:
+        if self.fixed_partition_seed is True:
             self.generator.manual_seed(FIXED_SEED_NUM)
 
         self.validation_enabled = False
@@ -318,12 +350,12 @@ class ProjectionTrainer:
             if len(self.test_ds) > 0:
                 self.test_enabled = True
 
-        if self.validation_enabled:
+        if self.validation_enabled is True:
             print('Validation operations are enabled with %' + str(self.validation_ratio * 100) + ' of data.')
         else:
             print('Validation operations are disabled.')
 
-        if self.test_enabled:
+        if self.test_enabled is True:
             print('Test operations are enabled with %' + str(self.test_ratio * 100) + ' of data.')
         else:
             print('Test operations are disabled.')
@@ -433,7 +465,7 @@ class ProjectionTrainer:
             lr_dec_period = total_steps // (lr_decrease_count + 1)
             self.model_lr_scheduler = lr_scheduler.StepLR(self.optimizer, step_size=lr_dec_period, gamma=self.loss_decrease_gamma)
 
-        if self.use_mixed_precision:
+        if self.use_mixed_precision is True:
             self.scaler = GradScaler()
         torch.cuda.empty_cache()
         print('Model is initialized.')
@@ -481,24 +513,33 @@ class ProjectionTrainer:
             writer.add_scalar('mean_test_pixel_error', self.mean_test_pixel_error)
             writer.add_scalar('max_test_pixel_error', self.max_test_pixel_error)
             writer.add_scalar('test_accuracy_pixel', self.test_accuracy_pixel)
-
-            writer.add_scalar('mean_test_distance_error', self.mean_test_distance_error)
-            writer.add_scalar('max_test_distance_error', self.max_test_distance_error)
-            writer.add_scalar('test_accuracy_distance', self.test_accuracy_distance)
+            if self.is_dist_map_enabled:
+                writer.add_scalar('mean_test_distance_error', self.mean_test_distance_error)
+                writer.add_scalar('max_test_distance_error', self.max_test_distance_error)
+                writer.add_scalar('test_accuracy_distance', self.test_accuracy_distance)
 
         elif self.logging_tool == 'wandb':
-            wandb.log(
-                {
-                    'mean_test_pixel_error': self.mean_test_pixel_error,
-                    'max_test_pixel_error': self.max_test_pixel_error,
-                    'test_accuracy_pixel': self.test_accuracy_pixel,
-
-                    'mean_test_distance_error': self.mean_test_distance_error,
-                    'max_test_distance_error': self.max_test_distance_error,
-                    'test_accuracy_distance': self.test_accuracy_distance,
-                },
-                step=self.iter_count,
-            )
+            if self.is_dist_map_enabled:
+                wandb.log(
+                    {
+                        'mean_test_pixel_error': self.mean_test_pixel_error,
+                        'max_test_pixel_error': self.max_test_pixel_error,
+                        'test_accuracy_pixel': self.test_accuracy_pixel,
+                        'mean_test_distance_error': self.mean_test_distance_error,
+                        'max_test_distance_error': self.max_test_distance_error,
+                        'test_accuracy_distance': self.test_accuracy_distance,
+                    },
+                    step=self.iter_count,
+                )
+            else:
+                wandb.log(
+                    {
+                        'mean_test_pixel_error': self.mean_test_pixel_error,
+                        'max_test_pixel_error': self.max_test_pixel_error,
+                        'test_accuracy_pixel': self.test_accuracy_pixel,
+                    },
+                    step=self.iter_count,
+                )
 
     def save_checkpoint(
             self, model_state_dict: Dict[str, torch.Tensor], optimizer_state_dict: Dict[Any, Any], epoch: int,
@@ -565,7 +606,7 @@ class ProjectionTrainer:
                 obj_coords = obj_coords.type(torch.FloatTensor).to(self.device, non_blocking=True)
                 projection_coord = projection_coord.type(torch.FloatTensor).to(self.device, non_blocking=True)
 
-                if self.use_mixed_precision:
+                if self.use_mixed_precision is True:
                     with autocast():
                         output = self.model(obj_coords)
                         loss = self.criterion(output, projection_coord)
@@ -606,7 +647,7 @@ class ProjectionTrainer:
             Calculated loss value and sample count
         """
         self.optimizer.zero_grad(set_to_none=True)
-        if self.use_mixed_precision:
+        if self.use_mixed_precision is True:
             with autocast():
                 output = self.model(object_coords)
                 loss = self.criterion(output, projection_coord)
@@ -652,6 +693,9 @@ class ProjectionTrainer:
 
         if self.validation_loss < self.least_loss:
             self.least_loss = self.validation_loss
+            self.training_loss_at_min_val_loss = self.iter_average_loss
+            self.update_min_loss_summary()
+
             self.save_checkpoint(
                 self.model.state_dict(),
                 self.optimizer.state_dict(),
@@ -673,11 +717,6 @@ class ProjectionTrainer:
                 self.validation_loss,
                 mode='best_accuracy',
             )
-
-        if self.validation_loss < self.min_val_loss:
-            self.min_val_loss = self.validation_loss
-            self.training_loss_at_min_val_loss = self.iter_average_loss
-            self.update_min_loss_summary()
 
         self.save_log_iteration_training()
 
@@ -723,7 +762,7 @@ class ProjectionTrainer:
                         if self.scheduler_type == 'reduce_plateau':
                             self.model_lr_scheduler.step(self.validation_loss)
 
-                if (self.model_save_period > 0 and self.iter_count % self.model_save_period == 0):
+                if self.model_save_period > 0 and self.iter_count % self.model_save_period == 0:
                     self.save_checkpoint(
                         self.model.state_dict(),
                         self.optimizer.state_dict(),
@@ -744,7 +783,7 @@ class ProjectionTrainer:
                         self.epoch_count, self.curr_learning_rate[param_count]
                     )
                 )
-        if self.validation_enabled:
+        if self.validation_enabled is True:
             self.run_validation()
         if self.model_save_period > 0:
             self.save_checkpoint(
@@ -758,6 +797,8 @@ class ProjectionTrainer:
 
         print('-' * 50)
         print('Best validation accuracy: {:6f}'.format(self.best_accuracy))
+        if self.logging_tool == 'tensorboard':
+            self.writer.close()
 
     def read_model_file(self):
         """
@@ -781,10 +822,11 @@ class ProjectionTrainer:
                 cum_test_loss = 0
                 test_sample_count = 0
                 cum_abs_diff = 0
-                cum_abs_diff_distance = 0
                 cum_test_hit_count_pixel = 0
-                cum_test_hit_count_distance = 0
                 max_diff = 0
+
+                cum_abs_diff_distance = 0
+                cum_test_hit_count_distance = 0
                 self.max_test_distance_error = 0
 
                 for sample in self.test_loader:
@@ -792,7 +834,7 @@ class ProjectionTrainer:
                     obj_coords = obj_coords.type(torch.FloatTensor).to(self.device, non_blocking=True)
                     projection_coord = projection_coord.type(torch.FloatTensor).to(self.device, non_blocking=True)
 
-                    if self.use_mixed_precision:
+                    if self.use_mixed_precision is True:
                         with autocast():
                             output = self.model(obj_coords)
                             loss = self.criterion(output, projection_coord)
@@ -800,35 +842,37 @@ class ProjectionTrainer:
                         output = self.model(obj_coords)
                         loss = self.criterion(output, projection_coord)
 
-                    denorm_output = torch.round((output + obj_coords[:, :2]) * self.denorm_coeff).int()
-                    denorm_pred = torch.round((projection_coord + obj_coords[:, :2]) * self.denorm_coeff).int()
-                    denorm_output_shifted = denorm_output - self.dist_map_top_left_coord
-                    denorm_pred_shifted = denorm_pred - self.dist_map_top_left_coord
-                    dist = torch.zeros([denorm_output_shifted.shape[0], 2], dtype=torch.float32, device=self.device)
-                    for i in range(denorm_output_shifted.shape[0]):
-                        dist[i] = self.pixel_world_coords[denorm_output_shifted[i][1], denorm_output_shifted[i][0], :] - \
-                                  self.pixel_world_coords[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0], :]
-
-                    abs_diffs_distance = torch.linalg.norm(dist, dim=1)
-                    hit_count_distance = torch.sum((abs_diffs_distance <= THRESHOLD_FOR_HIT_DISTANCE).to(int))
                     abs_diffs_pixel = torch.linalg.norm(torch.abs(output - projection_coord), dim=1)
                     hit_count_pixel = torch.sum((abs_diffs_pixel <= self.normalized_hit_thr).to(int))
                     cum_test_hit_count_pixel += hit_count_pixel.item()
-                    cum_test_hit_count_distance += hit_count_distance.item()
 
                     cum_test_loss += torch.sum(loss.mean(dim=1)).item()
                     test_sample_count += loss.size(dim=0)
 
                     cum_abs_diff += torch.sum(abs_diffs_pixel).item()
-                    cum_abs_diff_distance += torch.sum(abs_diffs_distance).item()
                     if torch.max(abs_diffs_pixel).item() > max_diff:
                         max_diff = torch.max(abs_diffs_pixel).item()
-                    if torch.max(abs_diffs_distance).item() > self.max_test_distance_error:
-                        self.max_test_distance_error = torch.max(abs_diffs_distance).item()
+
+                    if self.is_dist_map_enabled is True:
+                        denorm_output = torch.round((output + obj_coords[:, :2]) * self.denorm_coeff).int()
+                        denorm_pred = torch.round((projection_coord + obj_coords[:, :2]) * self.denorm_coeff).int()
+                        denorm_output_shifted = denorm_output - self.dist_map_top_left_coord
+                        denorm_pred_shifted = denorm_pred - self.dist_map_top_left_coord
+
+                        dist = torch.zeros([denorm_output_shifted.shape[0], 2], dtype=torch.float32, device=self.device)
+                        for i in range(denorm_output_shifted.shape[0]):
+                            dist[i] = self.pixel_world_coords[denorm_output_shifted[i][1], denorm_output_shifted[i][0], :] - \
+                                      self.pixel_world_coords[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0], :]
+                        abs_diffs_distance = torch.linalg.norm(dist, dim=1)
+                        hit_count_distance = torch.sum((abs_diffs_distance <= THRESHOLD_FOR_HIT_DISTANCE).to(int))
+                        cum_test_hit_count_distance += hit_count_distance.item()
+
+                        cum_abs_diff_distance += torch.sum(abs_diffs_distance).item()
+                        if torch.max(abs_diffs_distance).item() > self.max_test_distance_error:
+                            self.max_test_distance_error = torch.max(abs_diffs_distance).item()
 
                 self.test_loss = cum_test_loss / test_sample_count
                 print('Test loss {:.6f}'.format(self.test_loss))
-
                 self.test_accuracy_pixel = cum_test_hit_count_pixel / len(self.test_ds.indices)
                 print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
                 self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / len(self.test_ds.indices)
@@ -836,11 +880,12 @@ class ProjectionTrainer:
                 self.max_test_pixel_error = max_diff * self.related_cam_dim
                 print('Max test pixel error: ({:.6f})'.format(self.max_test_pixel_error))
 
-                self.test_accuracy_distance = cum_test_hit_count_distance / len(self.test_ds.indices)
-                print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
-                self.mean_test_distance_error = cum_abs_diff_distance / len(self.test_ds.indices)
-                print('Mean test distance error: ({:.6f})'.format(self.mean_test_distance_error))
-                print('Max test distance error: ({:.6f})'.format(self.max_test_distance_error))
+                if self.is_dist_map_enabled is True:
+                    self.test_accuracy_distance = cum_test_hit_count_distance / len(self.test_ds.indices)
+                    print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
+                    self.mean_test_distance_error = cum_abs_diff_distance / len(self.test_ds.indices)
+                    print('Mean test distance error: ({:.6f})'.format(self.mean_test_distance_error))
+                    print('Max test distance error: ({:.6f})'.format(self.max_test_distance_error))
 
                 self.save_log_iteration_test()
                 if self.logging_tool == 'tensorboard':

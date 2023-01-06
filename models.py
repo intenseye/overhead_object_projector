@@ -125,7 +125,7 @@ class RegressionModelXLarge(RegressionModel):
         else:
             self.linear8 = nn.Linear(16, 1)
 
-        if init_w_normal:
+        if init_w_normal is True:
             self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -144,37 +144,37 @@ class RegressionModelXLarge(RegressionModel):
         """
 
         x = self.linear1(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn1(x)
         x = self.activation_function(x)
 
         x = self.linear2(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn2(x)
         x = self.activation_function(x)
 
         x = self.linear3(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn3(x)
         x = self.activation_function(x)
 
         x = self.linear4(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn4(x)
         x = self.activation_function(x)
 
         x = self.linear5(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn5(x)
         x = self.activation_function(x)
 
         x = self.linear6(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn6(x)
         x = self.activation_function(x)
 
         x = self.linear7(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn7(x)
         x = self.activation_function(x)
 
@@ -223,7 +223,7 @@ class RegressionModelLarge(RegressionModel):
         else:
             self.linear6 = nn.Linear(16, 1)
 
-        if init_w_normal:
+        if init_w_normal is True:
             self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -242,27 +242,27 @@ class RegressionModelLarge(RegressionModel):
         """
 
         x = self.linear1(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn1(x)
         x = self.activation_function(x)
 
         x = self.linear2(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn2(x)
         x = self.activation_function(x)
 
         x = self.linear3(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn3(x)
         x = self.activation_function(x)
 
         x = self.linear4(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn4(x)
         x = self.activation_function(x)
 
         x = self.linear5(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn5(x)
         x = self.activation_function(x)
 
@@ -310,7 +310,7 @@ class RegressionModelMedium(RegressionModel):
         else:
             self.linear4 = nn.Linear(16, 1)
 
-        if init_w_normal:
+        if init_w_normal is True:
             self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -329,17 +329,17 @@ class RegressionModelMedium(RegressionModel):
         """
 
         x = self.linear1(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn1(x)
         x = self.activation_function(x)
 
         x = self.linear2(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn2(x)
         x = self.activation_function(x)
 
         x = self.linear3(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn3(x)
         x = self.activation_function(x)
 
@@ -382,7 +382,7 @@ class RegressionModelSmall(RegressionModel):
         else:
             self.linear3 = nn.Linear(16, 1)
 
-        if init_w_normal:
+        if init_w_normal is True:
             self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -401,12 +401,12 @@ class RegressionModelSmall(RegressionModel):
         """
 
         x = self.linear1(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn1(x)
         x = self.activation_function(x)
 
         x = self.linear2(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn2(x)
         x = self.activation_function(x)
 
@@ -449,7 +449,7 @@ class RegressionModelXSmall(RegressionModel):
             self.linear2 = nn.Linear(16, 2)
         else:
             self.linear2 = nn.Linear(16, 1)
-        if init_w_normal:
+        if init_w_normal is True:
             self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -468,7 +468,7 @@ class RegressionModelXSmall(RegressionModel):
         """
 
         x = self.linear1(x)
-        if self.use_batch_norm:
+        if self.use_batch_norm is True:
             x = self.bn1(x)
         x = self.activation_function(x)
         x = self.linear2(x)
@@ -501,7 +501,7 @@ class RegressionModelLinear(RegressionModel):
             self.linear1 = nn.Linear(4, 2)
         else:
             self.linear1 = nn.Linear(4, 1)
-        if init_w_normal:
+        if init_w_normal is True:
             self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
