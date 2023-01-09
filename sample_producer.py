@@ -1,5 +1,8 @@
 import sys
 import os
+import cv2
+import json
+from datetime import datetime
 import random
 import math
 from typing import List, Tuple, Any, Union
@@ -7,6 +10,7 @@ import pickle
 from configparser import ConfigParser
 import numpy as np
 import matplotlib.pyplot as plt
+import shutil
 from numpy import ndarray
 from tqdm import tqdm
 from argparse import ArgumentParser
@@ -37,13 +41,12 @@ def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) 
     input_coords: Tuple[Union[float, Any], ndarray, Any]
         Input coordinates to be fed to the projection point estimator.
     """
-    bbox_bottom_center = ((np.array(bbox[2]) + np.array(bbox[3])) / 2)
-    # bbox_bottom_center: (x coord of bbox_bottom_center, y coord bbox_bottom_center)
-    bbox_width_height = np.array((bbox[1][0] - bbox[0][0], bbox[2][1] - bbox[1][1]))
-    # bbox_width_height: (width of bbox, height of bbox)
-    proj_wrt_bbox_bottom_center = proj_mid[0] - bbox_bottom_center
-    # proj_wrt_bbox_bottom_center: (x coord of projection - x coord of bbox_bottom_center, y coord of projection - y coord of bbox_bottom_center)
-    input_coords = bbox_bottom_center, bbox_width_height, proj_wrt_bbox_bottom_center
+    # bbox_top_left: (x coord of bbox_top_left, y coord bbox_top_left)
+    bbox_top_left = np.array(bbox[0])
+    # bbox_bottom_right: (x coord of bbox_bottom_right, y coord bbox_bottom_right)
+    bbox_bottom_right = np.array(bbox[2])
+    # proj_mid[0]: (x coord of projection, y coord of projection)
+    input_coords = bbox_top_left, bbox_bottom_right, proj_mid[0]
     return input_coords
 
 
@@ -61,7 +64,7 @@ class PointEstimatorProjection:
             Configuration object
         """
         self.initialize_config(config)
-        if self.fixed_seed:
+        if self.fixed_seed is True:
             os.environ['PYTHONHASHSEED'] = str(FIXED_SEED_NUM)
             random.seed(FIXED_SEED_NUM)
             np.random.seed(FIXED_SEED_NUM)
@@ -77,7 +80,7 @@ class PointEstimatorProjection:
         self.pixel_world_coords = np.ones((self.extended_height, self.extended_width, 3), dtype=float) * sys.float_info.max
 
         self.calc_projection_matrix()
-        if self.export:
+        if self.export is True:
             self.calc_pixel_world_coordinates()
 
     def initialize_config(self, config: ConfigParser):
@@ -368,7 +371,7 @@ class PointEstimatorProjection:
         point_p_cen = self.project_pixel_coord(self.proj_center)
 
         # Apply radial distortion
-        if self.radial_dist_enabled:
+        if self.radial_dist_enabled is True:
             point_o_tlf = apply_radial_dist(point_o_tlf, self.cx, self.cy, self.k_1, self.k_2)
             point_o_tlb = apply_radial_dist(point_o_tlb, self.cx, self.cy, self.k_1, self.k_2)
             point_o_trf = apply_radial_dist(point_o_trf, self.cx, self.cy, self.k_1, self.k_2)
@@ -398,7 +401,7 @@ class PointEstimatorProjection:
         bbox_bl = (bbox_left, bbox_bottom)
 
         # Add random deviation to the location of each edge of the bounding box to simulate the error of object detector
-        if self.random_deviation_enabled:
+        if self.random_deviation_enabled is True:
             top_dev = random.gauss(0, self.deviation_sigma)
             left_dev = random.gauss(0, self.deviation_sigma)
             bottom_dev = random.gauss(0, self.deviation_sigma)
@@ -413,7 +416,7 @@ class PointEstimatorProjection:
         proj_points = [point_p_lb, point_p_rb, point_p_rf, point_p_lf]
 
         # Add random deviation to the location of center projection points to simulate the effect of marking error too.
-        if self.random_deviation_enabled:
+        if self.random_deviation_enabled is True:
             proj_cent_dev_x = random.gauss(0, self.deviation_sigma)
             proj_cent_dev_y = random.gauss(0, self.deviation_sigma)
             point_p_cen = [point_p_cen[0] + proj_cent_dev_x, point_p_cen[1] + proj_cent_dev_y]
@@ -438,6 +441,8 @@ def produce_data(config: ConfigParser):
     config: ConfigParser
         Configuration object containing the settings.
     """
+    print('Sample collection is started!')
+    process_time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
     demo_mode = str2bool(config.get("sample_producer", "DEMO_MODE"))
     draw_enabled = str2bool(config.get("sample_producer", "DRAW_ENABLED"))
     cam_pixel_width = int(float(config.get("sample_producer", "CAM_PIXEL_WIDTH")))
@@ -455,28 +460,34 @@ def produce_data(config: ConfigParser):
     rotate_angle_max = float(config.get("sample_producer", "ROTATE_ANGLE_MAX"))
 
     export = str2bool(config.get("sample_producer", "EXPORT"))
-    path_to_output_folder = config.get("sample_producer", "PATH_TO_OUTPUT_FOLDER")
-    auxiliary_data_path = config.get("sample_producer", "AUXILIARY_DATA_PATH")
-    projection_data_path = config.get("sample_producer", "PROJECTION_DATA_PATH")
+    output_folder_path = os.path.join(config.get("sample_producer", "OUTPUT_FOLDER_PATH"), process_time_stamp)
+    relative_image_folder_path = 'images'
+    coordinates_data_file_name = 'coordinates.json'
+    auxiliary_data_file_name = 'auxiliary_data.pickle'
 
-    inputs = []
-    outputs = []
-    cam_width_heights = []
+    pause_fig_time = 0.01  # Delay time applied during the consecutive drawings
+    if demo_mode is True:  # For the demo mode delay time is increased for the sake of easy monitoring
+        pause_fig_time = 0.50
+
+    path_to_auxiliary_data = ''
+    path_to_coordinates_data = ''
+    out_img_folder_path = ''
+    coordinates_data = {}
+    if (demo_mode is False) and (export is True):
+        os.makedirs(output_folder_path, exist_ok=True)
+        out_img_folder_path = os.path.join(output_folder_path, relative_image_folder_path)
+        os.makedirs(out_img_folder_path, exist_ok=True)
+
+        path_to_auxiliary_data = os.path.join(output_folder_path, auxiliary_data_file_name)
+        path_to_coordinates_data = os.path.join(output_folder_path, coordinates_data_file_name)
+
     point_estimator = PointEstimatorProjection(config)
-
-    PAUSE_FIG_TIME = 0.01  # Delay time applied during the consecutive drawings
-    if demo_mode:  # For the demo mode delay time is increased for the sake of easy monitoring
-        PAUSE_FIG_TIME = 0.50
-
-    cam_width_height = np.array((cam_pixel_width, cam_pixel_height))
-    print('Sample collection is started!')
-
     for z in tqdm(np.logspace(np.log10(z_search_min), np.log10(z_search_max), num=z_search_count)):
         # Logarithmic search procedure is applied so that distant observations in z-dimension do not dominate the sample set.
         for x in np.arange(x_search_min, x_search_max, search_distance_step):
             for y in np.arange(max(-y_search_min, obj_height / 2), -y_search_max, search_distance_step):
                 rotate_angle = random.uniform(rotate_angle_min, rotate_angle_max)
-                if demo_mode:
+                if demo_mode is True:
                     point_estimator.get_relative_world_coords(object_x=random.uniform(x_search_min, x_search_max),
                                                               object_y=random.uniform(y_search_min, y_search_max),
                                                               object_z=random.uniform(z_search_min, z_search_max),
@@ -485,21 +496,14 @@ def produce_data(config: ConfigParser):
                     point_estimator.get_relative_world_coords(object_x=x, object_y=-y, object_z=z, rotation_angle=rotate_angle)
 
                 obj, bbox, proj, proj_mid, front, back, top = point_estimator.get_pixel_points()
-                mid_bottom_coord, bbox_width_height, proj_coord_offset = calculate_input_coord(bbox, proj_mid)
+                bbox_top_left, bbox_bottom_right, proj_coord = calculate_input_coord(bbox, proj_mid)
                 # Filter the sample set in a such way that both object and center of the projection are completely visible
                 # in the camera.
-                if (0 <= (mid_bottom_coord[0] - bbox_width_height[0] / 2)) and (
-                        (mid_bottom_coord[0] + bbox_width_height[0] / 2) < cam_pixel_width) and (
-                        mid_bottom_coord[1] - bbox_width_height[1] >= 0) and (
-                        mid_bottom_coord[1] < cam_pixel_height) and (
-                        mid_bottom_coord[1] + proj_coord_offset[1] < cam_pixel_height):
-                    if not demo_mode:  # For the visual demo mode the storing operation is skipped.
-                        input_sample = np.append(mid_bottom_coord, bbox_width_height)
-                        inputs.append(input_sample)
-                        outputs.append(proj_coord_offset)
-                        cam_width_heights.append(cam_width_height)
+                if (0 <= bbox_top_left[0]) and (bbox_bottom_right[0] < cam_pixel_width) and (bbox_top_left[1] >= 0) and \
+                        (bbox_bottom_right[1] < cam_pixel_height) and (0 <= proj_coord[0] < cam_pixel_width) and \
+                        (0 <= proj_coord[1] < cam_pixel_height):
 
-                    if demo_mode or draw_enabled:  # Printing of the results
+                    if (demo_mode is True) or (draw_enabled is True) or (export is True):  # Printing of the results
                         image = np.ones((cam_pixel_height, cam_pixel_width, 3), dtype=np.uint8) * 90
                         connect_and_draw_points(image, bbox, GREEN_COLOR)
 
@@ -517,21 +521,57 @@ def produce_data(config: ConfigParser):
                         connect_and_draw_points(image, front, ORANGE_COLOR)
                         connect_and_draw_points(image, back, ORANGE_COLOR)
                         connect_and_draw_points(image, top, ORANGE_COLOR)
-                        plt.imshow(image)
-                        plt.pause(PAUSE_FIG_TIME)
-                        plt.cla()
+                        if (demo_mode is False) and (export is True):
+                            image_name = 'z_dist_' + str(round(z, 3)).zfill(6) + '_y_dist_' + str(
+                                round(y, 3)).zfill(6) + \
+                                         '_x_dist_' + str(round(x, 3)).zfill(6) + '_rotate_angle_' + \
+                                         str(round(rotate_angle, 3)).zfill(8) + '.png'
 
-    if (not demo_mode) and export:
-        export_data = np.hstack((inputs, outputs, cam_width_heights))
-        dir_path = path_to_output_folder
-        path_to_auxiliary_data = os.path.join(dir_path, auxiliary_data_path)
-        path_to_projection_data = os.path.join(dir_path, projection_data_path)
+                            objects = []
+                            relative_path = os.path.join(relative_image_folder_path, image_name)
 
-        os.makedirs(dir_path, exist_ok=True)
+                            image_dim = dict.fromkeys(["width", "height"])
+                            image_dim["height"], image_dim["width"] = [cam_pixel_height, cam_pixel_width]
+
+                            object_info = dict.fromkeys(["id", "bbox_coords", "projection"])
+
+                            object_info["id"] = 0
+
+                            object_coord = dict.fromkeys(["x_l", "y_t", "x_r", "y_b"])
+                            object_coord["x_l"], object_coord["y_t"], object_coord["x_r"], object_coord["y_b"] = \
+                                [bbox_top_left[0], bbox_top_left[1], bbox_bottom_right[0],
+                                 bbox_bottom_right[1]]
+                            object_info["bbox_coords"] = object_coord
+
+                            projection_coord = dict.fromkeys(["x", "y"])
+                            projection_coord["x"], projection_coord["y"] = [proj_coord[0], proj_coord[1]]
+                            object_info["projection"] = projection_coord
+
+                            objects.append(object_info)
+
+                            image_data = {
+                                "image_path": relative_path,
+                                "image_dimensions": image_dim,
+                                "objects": objects,
+                                "any_labelled": True
+                            }
+                            coordinates_data[os.path.splitext(image_name)[0]] = image_data
+
+                            cv2.imwrite(os.path.join(out_img_folder_path, image_name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+                        if (demo_mode is True) or (draw_enabled is True):
+                            plt.imshow(image)
+                            plt.pause(pause_fig_time)
+                            plt.cla()
+
+    if (demo_mode is False) and (export is True):
+        with open(path_to_coordinates_data, "w") as convert_file:
+            convert_file.write(json.dumps(coordinates_data, sort_keys=False, indent=4, separators=(",", ": ")))
+
         with open(path_to_auxiliary_data, 'wb') as handle:
             pickle.dump([point_estimator.pixel_world_coords, point_estimator.top_left_pixel_coord], handle, protocol=pickle.HIGHEST_PROTOCOL)
-        np.savetxt(path_to_projection_data, export_data, header='x_coord_mid_bottom y_coord_mid_bottom bbox_width bbox_height proj_x_dist_to_mid_bottom proj_y_dist_to_mid_bottom cam_width cam_height', fmt='%1.6e')  # X is an array
-        print('\nSample production is completed with {:6d} samples!'.format(export_data.shape[0]))
+
+        shutil.copy("settings.ini", output_folder_path)
+        print('\nSample production is completed with {:6d} samples!'.format(len(coordinates_data)))
 
 
 if __name__ == '__main__':
