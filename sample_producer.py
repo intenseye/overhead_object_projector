@@ -25,7 +25,8 @@ HALF_PIXEL_SIZE = 1 / 2
 CAM_REGION_EXPAND_RATIO = 3.0  # Expanding ratio of original image. Odd integer number is advised.
 
 
-def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[Union[float, Any], ndarray, Any]:
+def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[
+    Union[float, Any], ndarray, Any]:
     """
     Calculates input and target data points to be used in the model.
 
@@ -54,6 +55,7 @@ class PointEstimatorProjection:
     """
     Point estimator projection class
     """
+
     def __init__(self, config: ConfigParser):
         """
         Initialize the Point estimator projection class.
@@ -77,7 +79,8 @@ class PointEstimatorProjection:
         self.extended_y_start = -int((CAM_REGION_EXPAND_RATIO - 1) * self.cam_pixel_height / 2)
         self.extended_x_start = -int((CAM_REGION_EXPAND_RATIO - 1) * self.cam_pixel_width / 2)
         self.top_left_pixel_coord = np.array([self.extended_x_start, self.extended_y_start])
-        self.pixel_world_coords = np.ones((self.extended_height, self.extended_width, 3), dtype=float) * sys.float_info.max
+        self.pixel_world_coords = np.ones((self.extended_height, self.extended_width, 3),
+                                          dtype=float) * sys.float_info.max
 
         self.calc_projection_matrix()
         if self.export is True:
@@ -106,7 +109,6 @@ class PointEstimatorProjection:
         self.obj_width = float(config.get("sample_producer", "OBJ_WIDTH"))
         self.obj_length = float(config.get("sample_producer", "OBJ_LENGTH"))
         self.radial_dist_enabled = str2bool(config.get("sample_producer", "RADIAL_DIST_ENABLED"))
-        self.random_deviation_enabled = str2bool(config.get("sample_producer", "RANDOM_DEVIATION_ENABLED"))
         self.deviation_sigma = float(config.get("sample_producer", "DEVIATON_SIGMA"))
         self.k_1 = float(config.get("sample_producer", "K_1"))
         self.k_2 = float(config.get("sample_producer", "K_2"))
@@ -294,10 +296,12 @@ class PointEstimatorProjection:
         """
         for ind_j, j in enumerate(range(self.extended_y_start, self.extended_height + self.extended_y_start)):
             for ind_i, i in enumerate(range(self.extended_x_start, self.extended_width + self.extended_x_start)):
-                unit_ray_loc = np.matmul(self.P_inv, np.array([i+0.5, j+0.5, 1]))
+                unit_ray_loc = np.matmul(self.P_inv, np.array([i + 0.5, j + 0.5, 1]))
                 if unit_ray_loc[1] > 0:  # means ray is traveling in downward direction
-                    unit_ray_multiplier = -self.cam_y / unit_ray_loc[1]  # Projected elevation is 0 which means -self.cam_y for camera centered coordinate system.
-                    self.pixel_world_coords[ind_j, ind_i, :] = unit_ray_multiplier * unit_ray_loc[:3] + np.array([self.cam_x, self.cam_y, self.cam_z])
+                    unit_ray_multiplier = -self.cam_y / unit_ray_loc[
+                        1]  # Projected elevation is 0 which means -self.cam_y for camera centered coordinate system.
+                    self.pixel_world_coords[ind_j, ind_i, :] = unit_ray_multiplier * unit_ray_loc[:3] + np.array(
+                        [self.cam_x, self.cam_y, self.cam_z])
         print('Pixel ray coordinates are calculated.')
 
     def get_relative_world_coords(self, object_x: float, object_y: float, object_z: float, rotation_angle: float):
@@ -329,26 +333,42 @@ class PointEstimatorProjection:
         object_rel_top = [object_y - self.obj_height / 2 - self.cam_y]
         object_rel_bottom = [object_y + self.obj_height / 2 - self.cam_y]
 
-        self.object_tlf = [[object_x - rot_length_inc - self.cam_x], object_rel_top, [object_z - rot_width_dec - self.cam_z], [1.0]]
-        self.object_tlb = [[object_x - rot_length_dec - self.cam_x], object_rel_top, [object_z + rot_width_inc - self.cam_z], [1.0]]
-        self.object_trf = [[object_x + rot_length_dec - self.cam_x], object_rel_top, [object_z - rot_width_inc - self.cam_z], [1.0]]
-        self.object_trb = [[object_x + rot_length_inc - self.cam_x], object_rel_top, [object_z + rot_width_dec - self.cam_z], [1.0]]
+        self.object_tlf = [[object_x - rot_length_inc - self.cam_x], object_rel_top,
+                           [object_z - rot_width_dec - self.cam_z], [1.0]]
+        self.object_tlb = [[object_x - rot_length_dec - self.cam_x], object_rel_top,
+                           [object_z + rot_width_inc - self.cam_z], [1.0]]
+        self.object_trf = [[object_x + rot_length_dec - self.cam_x], object_rel_top,
+                           [object_z - rot_width_inc - self.cam_z], [1.0]]
+        self.object_trb = [[object_x + rot_length_inc - self.cam_x], object_rel_top,
+                           [object_z + rot_width_dec - self.cam_z], [1.0]]
 
-        self.object_blf = [[object_x - rot_length_inc - self.cam_x], object_rel_bottom, [object_z - rot_width_dec - self.cam_z], [1.0]]
-        self.object_blb = [[object_x - rot_length_dec - self.cam_x], object_rel_bottom, [object_z + rot_width_inc - self.cam_z], [1.0]]
-        self.object_brf = [[object_x + rot_length_dec - self.cam_x], object_rel_bottom, [object_z - rot_width_inc - self.cam_z], [1.0]]
-        self.object_brb = [[object_x + rot_length_inc - self.cam_x], object_rel_bottom, [object_z + rot_width_dec - self.cam_z], [1.0]]
+        self.object_blf = [[object_x - rot_length_inc - self.cam_x], object_rel_bottom,
+                           [object_z - rot_width_dec - self.cam_z], [1.0]]
+        self.object_blb = [[object_x - rot_length_dec - self.cam_x], object_rel_bottom,
+                           [object_z + rot_width_inc - self.cam_z], [1.0]]
+        self.object_brf = [[object_x + rot_length_dec - self.cam_x], object_rel_bottom,
+                           [object_z - rot_width_inc - self.cam_z], [1.0]]
+        self.object_brb = [[object_x + rot_length_inc - self.cam_x], object_rel_bottom,
+                           [object_z + rot_width_dec - self.cam_z], [1.0]]
 
-        self.proj_lf = [[object_x - rot_length_inc - self.cam_x], [0 - self.cam_y], [object_z - rot_width_dec - self.cam_z], [1.0]]
-        self.proj_lb = [[object_x - rot_length_dec - self.cam_x], [0 - self.cam_y], [object_z + rot_width_inc - self.cam_z], [1.0]]
-        self.proj_rf = [[object_x + rot_length_dec - self.cam_x], [0 - self.cam_y], [object_z - rot_width_inc - self.cam_z], [1.0]]
-        self.proj_rb = [[object_x + rot_length_inc - self.cam_x], [0 - self.cam_y], [object_z + rot_width_dec - self.cam_z], [1.0]]
+        self.proj_lf = [[object_x - rot_length_inc - self.cam_x], [0 - self.cam_y],
+                        [object_z - rot_width_dec - self.cam_z], [1.0]]
+        self.proj_lb = [[object_x - rot_length_dec - self.cam_x], [0 - self.cam_y],
+                        [object_z + rot_width_inc - self.cam_z], [1.0]]
+        self.proj_rf = [[object_x + rot_length_dec - self.cam_x], [0 - self.cam_y],
+                        [object_z - rot_width_inc - self.cam_z], [1.0]]
+        self.proj_rb = [[object_x + rot_length_inc - self.cam_x], [0 - self.cam_y],
+                        [object_z + rot_width_dec - self.cam_z], [1.0]]
         self.proj_center = [[object_x - self.cam_x], [0 - self.cam_y], [object_z - self.cam_z], [1.0]]
 
-    def get_pixel_points(self) -> Any:
+    def get_pixel_points(self, deviation_mode: str) -> Any:
         """
         Gets the pixel coordinate system points of the object and projection of it.
 
+        Parameters
+        ----------
+        deviation_mode: str
+            Deviation mode
         Returns
         ----------
         pixel_points: Any:
@@ -392,8 +412,10 @@ class PointEstimatorProjection:
         # TODO not sure that in between points can get maximum value. If not we may need to prove it.
         bbox_bottom = max(point_o_blf[1], point_o_blb[1], point_o_brf[1], point_o_brb[1])
         bbox_top = min(point_o_tlf[1], point_o_tlb[1], point_o_trf[1], point_o_trb[1])
-        bbox_right = max(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0], point_o_brf[0], point_o_brb[0])
-        bbox_left = min(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0], point_o_brf[0], point_o_brb[0])
+        bbox_right = max(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0],
+                         point_o_brf[0], point_o_brb[0])
+        bbox_left = min(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0],
+                        point_o_brf[0], point_o_brb[0])
 
         bbox_tl = (bbox_left, bbox_top)
         bbox_tr = (bbox_right, bbox_top)
@@ -401,7 +423,7 @@ class PointEstimatorProjection:
         bbox_bl = (bbox_left, bbox_bottom)
 
         # Add random deviation to the location of each edge of the bounding box to simulate the error of object detector
-        if self.random_deviation_enabled is True:
+        if deviation_mode == "bbox_dev" or deviation_mode == "both_dev":
             top_dev = random.gauss(0, self.deviation_sigma)
             left_dev = random.gauss(0, self.deviation_sigma)
             bottom_dev = random.gauss(0, self.deviation_sigma)
@@ -416,7 +438,7 @@ class PointEstimatorProjection:
         proj_points = [point_p_lb, point_p_rb, point_p_rf, point_p_lf]
 
         # Add random deviation to the location of center projection points to simulate the effect of marking error too.
-        if self.random_deviation_enabled is True:
+        if deviation_mode == "proj_dev" or deviation_mode == "both_dev":
             proj_cent_dev_x = random.gauss(0, self.deviation_sigma)
             proj_cent_dev_y = random.gauss(0, self.deviation_sigma)
             point_p_cen = [point_p_cen[0] + proj_cent_dev_x, point_p_cen[1] + proj_cent_dev_y]
@@ -428,7 +450,8 @@ class PointEstimatorProjection:
         back_facade = [point_o_tlb, point_o_trb, point_o_brb, point_o_blb]
         top_facade = [point_o_tlf, point_o_tlb, point_o_trb, point_o_trf]
 
-        object_points = [point_o_tlf, point_o_tlb, point_o_trf, point_o_trb, point_o_blf, point_o_blb, point_o_brf, point_o_brb]
+        object_points = [point_o_tlf, point_o_tlb, point_o_trf, point_o_trb, point_o_blf, point_o_blb, point_o_brf,
+                         point_o_brb]
         return object_points, bbox_points, proj_points, proj_mid_point, front_facade, back_facade, top_facade
 
 
@@ -458,9 +481,15 @@ def produce_data(config: ConfigParser):
     obj_height = float(config.get("sample_producer", "OBJ_HEIGHT"))
     rotate_angle_min = float(config.get("sample_producer", "ROTATE_ANGLE_MIN"))
     rotate_angle_max = float(config.get("sample_producer", "ROTATE_ANGLE_MAX"))
+    random_deviation_modes = config.get("sample_producer", "RANDOM_DEVIATION_MODES").split(',')
+    random_deviation_modes = [deviation.lstrip(' ').rstrip(' ') for deviation in random_deviation_modes]
 
     export = str2bool(config.get("sample_producer", "EXPORT"))
-    output_folder_path = os.path.join(config.get("sample_producer", "OUTPUT_FOLDER_PATH"), process_time_stamp)
+
+    output_folder_path = {}
+    for deviation in random_deviation_modes:
+        output_folder_path[deviation] = os.path.join(config.get("sample_producer", "OUTPUT_FOLDER_PATH"),
+                                                     process_time_stamp, deviation)
     relative_image_folder_path = 'images'
     coordinates_data_file_name = 'coordinates.json'
     auxiliary_data_file_name = 'auxiliary_data.pickle'
@@ -469,17 +498,22 @@ def produce_data(config: ConfigParser):
     if demo_mode is True:  # For the demo mode delay time is increased for the sake of easy monitoring
         pause_fig_time = 0.50
 
-    path_to_auxiliary_data = ''
-    path_to_coordinates_data = ''
-    out_img_folder_path = ''
+    path_to_auxiliary_data = {}
+    path_to_coordinates_data = {}
+    out_img_folder_path = {}
     coordinates_data = {}
-    if (demo_mode is False) and (export is True):
-        os.makedirs(output_folder_path, exist_ok=True)
-        out_img_folder_path = os.path.join(output_folder_path, relative_image_folder_path)
-        os.makedirs(out_img_folder_path, exist_ok=True)
+    for deviation in random_deviation_modes:
+        coordinates_data[deviation] = {}
 
-        path_to_auxiliary_data = os.path.join(output_folder_path, auxiliary_data_file_name)
-        path_to_coordinates_data = os.path.join(output_folder_path, coordinates_data_file_name)
+    if (demo_mode is False) and (export is True):
+        for deviation in random_deviation_modes:
+            os.makedirs(output_folder_path[deviation], exist_ok=True)
+            out_img_folder_path[deviation] = os.path.join(output_folder_path[deviation], relative_image_folder_path)
+            os.makedirs(out_img_folder_path[deviation], exist_ok=True)
+
+            path_to_auxiliary_data[deviation] = os.path.join(output_folder_path[deviation], auxiliary_data_file_name)
+            path_to_coordinates_data[deviation] = os.path.join(output_folder_path[deviation],
+                                                               coordinates_data_file_name)
 
     point_estimator = PointEstimatorProjection(config)
     for z in tqdm(np.logspace(np.log10(z_search_min), np.log10(z_search_max), num=z_search_count)):
@@ -493,89 +527,109 @@ def produce_data(config: ConfigParser):
                                                               object_z=random.uniform(z_search_min, z_search_max),
                                                               rotation_angle=rotate_angle)
                 else:
-                    point_estimator.get_relative_world_coords(object_x=x, object_y=-y, object_z=z, rotation_angle=rotate_angle)
+                    point_estimator.get_relative_world_coords(object_x=x, object_y=-y, object_z=z,
+                                                              rotation_angle=rotate_angle)
 
-                obj, bbox, proj, proj_mid, front, back, top = point_estimator.get_pixel_points()
-                bbox_top_left, bbox_bottom_right, proj_coord = calculate_input_coord(bbox, proj_mid)
-                # Filter the sample set in a such way that both object and center of the projection are completely visible
-                # in the camera.
-                if (0 <= bbox_top_left[0]) and (bbox_bottom_right[0] < cam_pixel_width) and (bbox_top_left[1] >= 0) and \
-                        (bbox_bottom_right[1] < cam_pixel_height) and (0 <= proj_coord[0] < cam_pixel_width) and \
-                        (0 <= proj_coord[1] < cam_pixel_height):
+                objs, bboxs, projs, proj_mids, fronts, backs, tops, bbox_top_left, bbox_bottom_right, proj_coord = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+                completely_seen = True
+                for deviation in random_deviation_modes:
+                    objs[deviation], bboxs[deviation], projs[deviation], proj_mids[deviation], fronts[deviation], backs[
+                        deviation], tops[deviation] = point_estimator.get_pixel_points(deviation)
+                    bbox_top_left[deviation], bbox_bottom_right[deviation], proj_coord[
+                        deviation] = calculate_input_coord(bboxs[deviation], proj_mids[deviation])
+                    # Filter the sample set in a such way that both object and center of the projection are completely visible
+                    # in the camera.
+                    if not ((0 <= bbox_top_left[deviation][0]) and (
+                            bbox_bottom_right[deviation][0] < cam_pixel_width) and (
+                                    bbox_top_left[deviation][1] >= 0) and (
+                            bbox_bottom_right[deviation][1] < cam_pixel_height) and (
+                                    0 <= proj_coord[deviation][0] < cam_pixel_width) and (
+                            0 <= proj_coord[deviation][1] < cam_pixel_height)):
+                        completely_seen = False
+                        break
 
-                    if (demo_mode is True) or (draw_enabled is True) or (export is True):  # Printing of the results
-                        image = np.ones((cam_pixel_height, cam_pixel_width, 3), dtype=np.uint8) * 90
-                        connect_and_draw_points(image, bbox, GREEN_COLOR)
+                if completely_seen is True:
+                    for deviation in random_deviation_modes:
+                        if (demo_mode is True) or (draw_enabled is True) or (export is True):  # Printing of the results
+                            image = np.ones((cam_pixel_height, cam_pixel_width, 3), dtype=np.uint8) * 90
+                            connect_and_draw_points(image, bboxs[deviation], GREEN_COLOR)
 
-                        connect_and_draw_points(image, [obj[0]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[1]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[2]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[3]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[4]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[5]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[6]], RED_COLOR)
-                        connect_and_draw_points(image, [obj[7]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][0]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][1]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][2]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][3]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][4]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][5]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][6]], RED_COLOR)
+                            connect_and_draw_points(image, [objs[deviation][7]], RED_COLOR)
 
-                        # connect_and_draw_points(image, proj, WHITE_COLOR)
-                        connect_and_draw_points(image, proj_mid, RED_COLOR)
-                        connect_and_draw_points(image, front, ORANGE_COLOR)
-                        connect_and_draw_points(image, back, ORANGE_COLOR)
-                        connect_and_draw_points(image, top, ORANGE_COLOR)
-                        if (demo_mode is False) and (export is True):
-                            image_name = 'z_dist_' + str(round(z, 3)).zfill(6) + '_y_dist_' + str(
-                                round(y, 3)).zfill(6) + \
-                                         '_x_dist_' + str(round(x, 3)).zfill(6) + '_rotate_angle_' + \
-                                         str(round(rotate_angle, 3)).zfill(8) + '.png'
+                            # connect_and_draw_points(image, proj, WHITE_COLOR)
+                            connect_and_draw_points(image, proj_mids[deviation], RED_COLOR)
+                            connect_and_draw_points(image, fronts[deviation], ORANGE_COLOR)
+                            connect_and_draw_points(image, backs[deviation], ORANGE_COLOR)
+                            connect_and_draw_points(image, tops[deviation], ORANGE_COLOR)
+                            if (demo_mode is False) and (export is True):
+                                image_name = 'z_dist_' + str(round(z, 3)).zfill(6) + '_y_dist_' + str(
+                                    round(y, 3)).zfill(6) + \
+                                             '_x_dist_' + str(round(x, 3)).zfill(6) + '_rotate_angle_' + \
+                                             str(round(rotate_angle, 3)).zfill(8) + '.png'
 
-                            objects = []
-                            relative_path = os.path.join(relative_image_folder_path, image_name)
+                                objects = []
+                                relative_path = os.path.join(relative_image_folder_path, image_name)
 
-                            image_dim = dict.fromkeys(["width", "height"])
-                            image_dim["height"], image_dim["width"] = [cam_pixel_height, cam_pixel_width]
+                                image_dim = dict.fromkeys(["width", "height"])
+                                image_dim["height"], image_dim["width"] = [cam_pixel_height, cam_pixel_width]
 
-                            object_info = dict.fromkeys(["id", "bbox_coords", "projection"])
+                                object_info = dict.fromkeys(["id", "bbox_coords", "projection"])
+                                object_info["id"] = 0
 
-                            object_info["id"] = 0
+                                object_coord = dict.fromkeys(["x_l", "y_t", "x_r", "y_b"])
+                                object_coord["x_l"], object_coord["y_t"], object_coord["x_r"], object_coord["y_b"] = \
+                                    [bbox_top_left[deviation][0], bbox_top_left[deviation][1],
+                                     bbox_bottom_right[deviation][0],
+                                     bbox_bottom_right[deviation][1]]
+                                object_info["bbox_coords"] = object_coord
 
-                            object_coord = dict.fromkeys(["x_l", "y_t", "x_r", "y_b"])
-                            object_coord["x_l"], object_coord["y_t"], object_coord["x_r"], object_coord["y_b"] = \
-                                [bbox_top_left[0], bbox_top_left[1], bbox_bottom_right[0],
-                                 bbox_bottom_right[1]]
-                            object_info["bbox_coords"] = object_coord
+                                projection_coord = dict.fromkeys(["x", "y"])
+                                projection_coord["x"], projection_coord["y"] = [proj_coord[deviation][0],
+                                                                                proj_coord[deviation][1]]
+                                object_info["projection"] = projection_coord
 
-                            projection_coord = dict.fromkeys(["x", "y"])
-                            projection_coord["x"], projection_coord["y"] = [proj_coord[0], proj_coord[1]]
-                            object_info["projection"] = projection_coord
+                                objects.append(object_info)
 
-                            objects.append(object_info)
+                                image_data = {
+                                    "image_path": relative_path,
+                                    "image_dimensions": image_dim,
+                                    "objects": objects,
+                                    "any_labelled": True
+                                }
+                                coordinates_data[deviation][os.path.splitext(image_name)[0]] = image_data
 
-                            image_data = {
-                                "image_path": relative_path,
-                                "image_dimensions": image_dim,
-                                "objects": objects,
-                                "any_labelled": True
-                            }
-                            coordinates_data[os.path.splitext(image_name)[0]] = image_data
-
-                            cv2.imwrite(os.path.join(out_img_folder_path, image_name), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-                        if (demo_mode is True) or (draw_enabled is True):
-                            plt.imshow(image)
-                            plt.pause(pause_fig_time)
-                            plt.cla()
+                                cv2.imwrite(os.path.join(out_img_folder_path[deviation], image_name),
+                                            cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+                            if (demo_mode is True) or (draw_enabled is True):
+                                plt.imshow(image)
+                                plt.pause(pause_fig_time)
+                                plt.cla()
 
     if (demo_mode is False) and (export is True):
-        with open(path_to_coordinates_data, "w") as convert_file:
-            convert_file.write(json.dumps(coordinates_data, sort_keys=False, indent=4, separators=(",", ": ")))
+        for deviation in random_deviation_modes:
+            with open(path_to_coordinates_data[deviation], "w") as convert_file:
+                convert_file.write(
+                    json.dumps(coordinates_data[deviation], sort_keys=False, indent=4, separators=(",", ": ")))
 
-        with open(path_to_auxiliary_data, 'wb') as handle:
-            pickle.dump([point_estimator.pixel_world_coords, point_estimator.top_left_pixel_coord], handle, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(path_to_auxiliary_data[deviation], 'wb') as handle:
+                pickle.dump([point_estimator.pixel_world_coords, point_estimator.top_left_pixel_coord], handle,
+                            protocol=pickle.HIGHEST_PROTOCOL)
 
-        shutil.copy("settings.ini", output_folder_path)
-        print('\nSample production is completed with {:6d} samples!'.format(len(coordinates_data)))
+            shutil.copy("settings.ini", output_folder_path[deviation])
+        print('\nSample production is completed with {:6d} samples!'.format(
+            len(coordinates_data[random_deviation_modes[0]])))
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description="Script to produce data including the position of the overhead object and projection point.")
+    parser = ArgumentParser(
+        description="Script to produce data including the position of the overhead object and projection point.")
     parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings.ini")
 
     args = parser.parse_args()

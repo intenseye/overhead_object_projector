@@ -13,14 +13,14 @@ from tqdm import tqdm
 import torch
 from torch.optim import AdamW, lr_scheduler
 from torch.cuda.amp import autocast, GradScaler
-from torch.utils.data import TensorDataset, DataLoader, Subset
+from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import wandb
 from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, \
     RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 from utils import str2bool, read_settings, seed_worker
 from loss import Criterion_mse_loss, Criterion_nth_power_loss
-from temp_params import *
+from temp_params import param_sweep as param_sweep
 
 
 NUM_WORKERS = 0  # Number of workers to load data
@@ -28,7 +28,8 @@ THRESHOLD_CONST_FOR_HIT_PIXEL = 0.0035  # Hit distance threshold between the pre
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
-FIXED_SEED_NUM = 35  # Seed number
+FIXED_SEED_NUM = 6  # Seed number
+ACTIVATE_CHECKPOINT_SAVE = False
 
 
 def read_data(input_json_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -155,9 +156,6 @@ class ProjectionTrainer:
         self.log_folder_path = os.path.join(self.main_output_folder, 'logs', self.driver, time_stamp)  # Log folder
 
         self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
-        self.validation_ratio = float(param_sweep['validation_ratio'])  # Validation ratio to be used in data splitting
-        self.test_ratio = float(param_sweep['test_ratio'])  # Test ratio to be used in data splitting
-
         self.zero_mean_enabled = str2bool(param_sweep['zero_mean_enabled'])  # Subtract the mean values from input data (Not implemented yet. Maybe no needed.)
         self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])  # Enables mixed precision operations.
         self.max_epoch = int(float(param_sweep['max_epoch']))  # Maximum number of training epoch.
@@ -181,16 +179,14 @@ class ProjectionTrainer:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
         # folder creation if needed
-        if not os.path.exists(self.model_output_folder_path):
-            os.makedirs(self.model_output_folder_path)
-            with open(os.path.join(self.model_output_folder_path, 'params.json'), 'w') as convert_file:
-                convert_file.write('param_sweep = ')
-                convert_file.write(json.dumps(param_sweep))
-        if not os.path.exists(self.log_folder_path):
-            os.makedirs(self.log_folder_path)
-            with open(os.path.join(self.log_folder_path, 'params.json'), 'w') as convert_file:
-                convert_file.write('param_sweep = ')
-                convert_file.write(json.dumps(param_sweep))
+        os.makedirs(self.model_output_folder_path, exist_ok=True)
+        with open(os.path.join(self.model_output_folder_path, 'params.json'), 'w') as convert_file:
+            convert_file.write('param_sweep = ')
+            convert_file.write(json.dumps(param_sweep))
+        os.makedirs(self.log_folder_path, exist_ok=True)
+        with open(os.path.join(self.log_folder_path, 'params.json'), 'w') as convert_file:
+            convert_file.write('param_sweep = ')
+            convert_file.write(json.dumps(param_sweep))
 
         self.val_accuracy = 0.0
         self.validation_loss = math.inf
@@ -205,14 +201,23 @@ class ProjectionTrainer:
             self.load_distance_map(self.auxiliary_data_path)
             self.is_dist_map_enabled = True
 
-        self.initialize_dataloaders(self.coordinates_file)
+        self.generator = torch.Generator()
+        if self.fixed_partition_seed is True:
+            self.generator.manual_seed(FIXED_SEED_NUM)
+        self.train_ds, self.train_loader = self.initialize_dataloader(self.coordinates_file_train)
+        self.val_ds, self.val_loader = self.initialize_dataloader(self.coordinates_file_val)
+        if self.val_loader is not None:
+            self.validation_enabled = True
+        self.test_ds, self.test_loader = self.initialize_dataloader(self.coordinates_file_test)
+        if self.test_loader is not None:
+            self.test_enabled = True
         model = centprojnet(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis,
                             use_batch_norm=self.use_batch_norm, batch_momentum=self.batch_momentum,
                             activation=self.activation)
 
         self.loss_plot_period = len(self.train_loader)//self.val_count_in_epoch
         self.model_save_period = 0
-        if int(len(self.train_ds) * self.validation_ratio) == 0:
+        if ACTIVATE_CHECKPOINT_SAVE:
             self.model_save_period = len(self.train_loader)
 
         optimizer = AdamW(model.parameters(), lr=self.init_learning_rate, betas=self.betas, eps=self.eps_adam, weight_decay=self.weight_decay)
@@ -257,40 +262,11 @@ class ProjectionTrainer:
         self.loss_decrease_count = int(float(config.get("projection_trainer", "LOSS_DECREASE_COUNT")))
         self.loss_decrease_gamma = float(config.get("projection_trainer", "LOSS_DECREASE_GAMMA"))
         input_folder_path = config.get("projection_trainer", "INPUT_FOLDER_PATH")
-        self.coordinates_file = os.path.join(input_folder_path, 'coordinates.json')
+        self.coordinates_file_train = os.path.join(input_folder_path, 'split', 'coordinates_train.json')
+        self.coordinates_file_test = os.path.join(input_folder_path, 'split', 'coordinates_test.json')
+        self.coordinates_file_val = os.path.join(input_folder_path, 'split', 'coordinates_val.json')
         self.auxiliary_data_path = os.path.join(input_folder_path, 'auxiliary_data.pickle')
         self.projection_axis = config.get("projection_trainer", "PROJECTION_AXIS")
-
-    def dataset_splitter(self, dataset: TensorDataset) -> Tuple[Subset, Subset, Subset]:
-        """
-        Splits the dataset into training validation and test parts
-
-        Parameters
-        ----------
-        dataset: TensorDataset
-            Train set that needs to be split into training, validation and test sets
-
-        Returns
-        ----------
-        dataset_pairs: Tuple[Subset, Subset, Subset]]
-            Train and validation sets
-        """
-
-        input_size = len(dataset)
-        val_input_size = int(input_size * self.validation_ratio)
-        test_input_size = int(input_size * self.test_ratio)
-        train_input_size = input_size - (val_input_size + test_input_size)
-
-        random_indices = random.sample(range(input_size), input_size)
-        val_indices = random_indices[0:val_input_size]
-        test_indices = random_indices[val_input_size:test_input_size + val_input_size]
-        train_indices = random_indices[-train_input_size:]
-
-        val_ds = Subset(dataset, val_indices)
-        test_ds = Subset(dataset, test_indices)
-        train_ds = Subset(dataset, train_indices)
-        dataset_pairs = train_ds, val_ds, test_ds
-        return dataset_pairs
 
     def load_distance_map(self, distance_map_path: str):
         """
@@ -308,7 +284,7 @@ class ProjectionTrainer:
             # Since we extended the original camera pixel dimensions, we need to use the new top-left location of the new camera.
             self.dist_map_top_left_coord = torch.from_numpy(self.dist_map_top_left_coord).to(self.device)
 
-    def initialize_dataloaders(self, input_json_path: str):
+    def initialize_datasets(self, input_json_path: str):
         """
         Initialize the data loader after the normalization operation
 
@@ -334,61 +310,22 @@ class ProjectionTrainer:
                 self.image_size[0]**2 + self.image_size[1]**2)
         inputs_norm = torch.from_numpy(inputs_norm).float()
         targets_norm = torch.from_numpy(targets_norm).float()
-        self.train_ds = TensorDataset(inputs_norm, targets_norm)
-        self.generator = torch.Generator()
-        if self.fixed_partition_seed is True:
-            self.generator.manual_seed(FIXED_SEED_NUM)
+        return TensorDataset(inputs_norm, targets_norm)
 
-        self.validation_enabled = False
-        self.test_enabled = False
-        self.val_ds = None
-        self.test_ds = None
-        if (self.validation_ratio + self.test_ratio) > 0:
-            self.train_ds, self.val_ds, self.test_ds = self.dataset_splitter(self.train_ds)
-            if len(self.val_ds) > 0:
-                self.validation_enabled = True
-            if len(self.test_ds) > 0:
-                self.test_enabled = True
-
-        if self.validation_enabled is True:
-            print('Validation operations are enabled with %' + str(self.validation_ratio * 100) + ' of data.')
-        else:
-            print('Validation operations are disabled.')
-
-        if self.test_enabled is True:
-            print('Test operations are enabled with %' + str(self.test_ratio * 100) + ' of data.')
-        else:
-            print('Test operations are disabled.')
-
-        self.val_loader = DataLoader(
-            self.val_ds,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            worker_init_fn=seed_worker,
-            generator=self.generator,
-        )
-
-        self.test_loader = DataLoader(
-            self.test_ds,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            worker_init_fn=seed_worker,
-            generator=self.generator,
-        )
-
-        self.train_loader = DataLoader(
-            self.train_ds,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            worker_init_fn=seed_worker,
-            generator=self.generator,
-        )
+    def initialize_dataloader(self, data_json_path: str):
+        data_ds = self.initialize_datasets(data_json_path)
+        data_loader = None
+        if len(data_ds)> 0:
+            data_loader = DataLoader(
+                data_ds,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=self.num_workers,
+                pin_memory=True,
+                worker_init_fn=seed_worker,
+                generator=self.generator,
+            )
+        return data_ds, data_loader
 
     def initialize_wandb(self, folder_name: str):
         """
@@ -623,7 +560,7 @@ class ProjectionTrainer:
             self.validation_loss = cum_validation_loss / sample_count
             print('Validation (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.validation_loss))
 
-            self.val_accuracy = cum_hits / len(self.val_ds.indices)
+            self.val_accuracy = cum_hits / len(self.val_ds)
             print(
                 'Max validation (accuracy) in iteration {:d} : ({:.6f})'.format(
                     self.iter_count, self.val_accuracy
@@ -812,7 +749,7 @@ class ProjectionTrainer:
         """
         Main test function.
         """
-        if self.best_model_path is not None:
+        if self.test_enabled and self.best_model_path is not None:
             self.read_model_file()
             self.model.load_state_dict(self.checkpoint["model_state_dict"])
             self.model = self.model.to(self.device)
@@ -873,17 +810,17 @@ class ProjectionTrainer:
 
                 self.test_loss = cum_test_loss / test_sample_count
                 print('Test loss {:.6f}'.format(self.test_loss))
-                self.test_accuracy_pixel = cum_test_hit_count_pixel / len(self.test_ds.indices)
+                self.test_accuracy_pixel = cum_test_hit_count_pixel / len(self.test_ds)
                 print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
-                self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / len(self.test_ds.indices)
+                self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / len(self.test_ds)
                 print('Mean test pixel error: ({:.6f})'.format(self.mean_test_pixel_error))
                 self.max_test_pixel_error = max_diff * self.related_cam_dim
                 print('Max test pixel error: ({:.6f})'.format(self.max_test_pixel_error))
 
                 if self.is_dist_map_enabled is True:
-                    self.test_accuracy_distance = cum_test_hit_count_distance / len(self.test_ds.indices)
+                    self.test_accuracy_distance = cum_test_hit_count_distance / len(self.test_ds)
                     print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
-                    self.mean_test_distance_error = cum_abs_diff_distance / len(self.test_ds.indices)
+                    self.mean_test_distance_error = cum_abs_diff_distance / len(self.test_ds)
                     print('Mean test distance error: ({:.6f})'.format(self.mean_test_distance_error))
                     print('Max test distance error: ({:.6f})'.format(self.max_test_distance_error))
 
