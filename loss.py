@@ -29,7 +29,7 @@ class Criterion_mse_loss(nn.Module):
         loss: torch.Tensor
             The loss value
         """
-        loss = self.loss(output, target)
+        loss = self.loss(output, target).mean(1)
         return loss
 
 
@@ -86,6 +86,6 @@ class Criterion_nth_power_loss(nn.Module):
             The loss value
         """
         dist = output - target
-        power_loss = dist.pow(self.power_term).mean(1).pow(1/self.power_term)
+        power_loss = dist.pow(self.power_term).mean(1)
         return power_loss
 

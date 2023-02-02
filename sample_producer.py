@@ -22,7 +22,7 @@ ORANGE_COLOR = (255, 200, 0)  # Orange color code
 RED_COLOR = (255, 0, 0)  # Red color code
 WHITE_COLOR = (255, 255, 255)  # White color code
 HALF_PIXEL_SIZE = 1 / 2
-CAM_REGION_EXPAND_RATIO = 3.0  # Expanding ratio of original image. Odd integer number is advised.
+CAM_REGION_EXPAND_RATIO = 5.0  # Expanding ratio of original image. Odd integer number is advised.
 
 
 def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[
@@ -455,7 +455,7 @@ class PointEstimatorProjection:
         return object_points, bbox_points, proj_points, proj_mid_point, front_facade, back_facade, top_facade
 
 
-def produce_data(config: ConfigParser):
+def produce_data(config: ConfigParser, settings_path: str):
     """
     Produces data including the position of the overhead object and projection point.
 
@@ -463,6 +463,8 @@ def produce_data(config: ConfigParser):
     ----------
     config: ConfigParser
         Configuration object containing the settings.
+    settings_path: str
+        Path to the settings file.
     """
     print('Sample collection is started!')
     process_time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
@@ -622,7 +624,7 @@ def produce_data(config: ConfigParser):
                 pickle.dump([point_estimator.pixel_world_coords, point_estimator.top_left_pixel_coord], handle,
                             protocol=pickle.HIGHEST_PROTOCOL)
 
-            shutil.copy("settings.ini", output_folder_path[deviation])
+            shutil.copy(settings_path, output_folder_path[deviation])
         print('\nSample production is completed with {:6d} samples!'.format(
             len(coordinates_data[random_deviation_modes[0]])))
 
@@ -630,8 +632,8 @@ def produce_data(config: ConfigParser):
 if __name__ == '__main__':
     parser = ArgumentParser(
         description="Script to produce data including the position of the overhead object and projection point.")
-    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings.ini")
+    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings_5.ini")
 
     args = parser.parse_args()
     config_ = read_settings(args.settings_path)
-    produce_data(config=config_)
+    produce_data(config=config_, settings_path=args.settings_path)

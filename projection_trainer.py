@@ -20,11 +20,10 @@ from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge,
     RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 from utils import str2bool, read_settings, seed_worker
 from loss import Criterion_mse_loss, Criterion_nth_power_loss
-from temp_params import param_sweep as param_sweep
-
+from temp_params_linear import param_sweep as param_sweep
 
 NUM_WORKERS = 0  # Number of workers to load data
-THRESHOLD_CONST_FOR_HIT_PIXEL = 0.0035  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
+THRESHOLD_CONST_FOR_HIT_PIXEL = 0.005  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
@@ -62,14 +61,17 @@ def read_data(input_json_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
                         crane_positions.append(crane_position)
                         projection_positions.append([object_info["projection"]["x"], object_info["projection"]["y"]])
                         if image_dims_unique is None:
-                            image_dims_unique = [current_frame_info["image_dimensions"]["width"], current_frame_info["image_dimensions"]["height"]]
+                            image_dims_unique = [current_frame_info["image_dimensions"]["width"],
+                                                 current_frame_info["image_dimensions"]["height"]]
                         else:
-                            image_dims = [current_frame_info["image_dimensions"]["width"], current_frame_info["image_dimensions"]["height"]]
+                            image_dims = [current_frame_info["image_dimensions"]["width"],
+                                          current_frame_info["image_dimensions"]["height"]]
                             if image_dims[0] != image_dims_unique[0] or image_dims[1] != image_dims_unique[1]:
                                 print('All image dimensions must be the same!')
                                 sys.exit()
 
-        data_read = np.array(crane_positions).astype(np.float32), np.array(projection_positions).astype(np.float32), np.array(image_dims).astype(np.float32)
+        data_read = np.array(crane_positions).astype(np.float32), np.array(projection_positions).astype(
+            np.float32), np.array(image_dims).astype(np.float32)
         return data_read
 
 
@@ -112,6 +114,7 @@ class ProjectionTrainer:
     """
     Projection trainer class
     """
+
     def __init__(self, driver: str, config: ConfigParser):
         """
         Initialize the Projection trainer class.
@@ -128,6 +131,7 @@ class ProjectionTrainer:
 
         self.driver = driver
         self.network_size = param_sweep['network_size']  # Defines the size of the networks.
+        self.test_model_mode = param_sweep['test_model_mode']  # Defines the size of the networks.
 
         if self.network_size == 'xl':
             centprojnet = RegressionModelXLarge
@@ -145,22 +149,25 @@ class ProjectionTrainer:
             raise ValueError("Invalid network size %s" % repr(self.network_size))
 
         self.batch_size = int(float(param_sweep['batch_size']))  # Defines the batch size
-        self.activation = param_sweep['activation']  # Defines the activation function to be used in hidden layers of networks
+        self.activation = param_sweep[
+            'activation']  # Defines the activation function to be used in hidden layers of networks
         self.loss_function = param_sweep['loss_function_reg']  # Defines the loss function
         time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
         print('Model and log time stamp folder: ' + str(time_stamp))
         self.device = torch.device(self.device)
         self.logging_tool = self.logging_tool
         self.num_workers = NUM_WORKERS
-        self.model_output_folder_path = os.path.join(self.main_output_folder, 'models', self.driver, time_stamp)  # Model output folder
+        self.model_output_folder_path = os.path.join(self.main_output_folder, 'models', self.driver,
+                                                     time_stamp)  # Model output folder
         self.log_folder_path = os.path.join(self.main_output_folder, 'logs', self.driver, time_stamp)  # Log folder
 
         self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
-        self.zero_mean_enabled = str2bool(param_sweep['zero_mean_enabled'])  # Subtract the mean values from input data (Not implemented yet. Maybe no needed.)
         self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])  # Enables mixed precision operations.
         self.max_epoch = int(float(param_sweep['max_epoch']))  # Maximum number of training epoch.
-        self.init_learning_rate = float(param_sweep['init_learning_rate'])  # Initial learning rate (except for OneCycleLR. OneCycleLR uses this value as the maximum learning rate).
-        self.scheduler_type = param_sweep['scheduler_type']  # The scheduler type. ('reduce_plateau', 'lambda', 'one_cycle', 'step')
+        self.init_learning_rate = float(param_sweep[
+                                            'init_learning_rate'])  # Initial learning rate (except for OneCycleLR. OneCycleLR uses this value as the maximum learning rate).
+        self.scheduler_type = param_sweep[
+            'scheduler_type']  # The scheduler type. ('reduce_plateau', 'lambda', 'one_cycle', 'step')
         self.betas = (float(param_sweep['betas_0']),  # Beta values used in AdamW optimizer.
                       float(param_sweep['betas_1']))
         self.weight_decay = float(param_sweep['weight_decay'])  # weight decay value used in AdamW optimizer.
@@ -215,12 +222,13 @@ class ProjectionTrainer:
                             use_batch_norm=self.use_batch_norm, batch_momentum=self.batch_momentum,
                             activation=self.activation)
 
-        self.loss_plot_period = len(self.train_loader)//self.val_count_in_epoch
+        self.loss_plot_period = len(self.train_loader) // self.val_count_in_epoch
         self.model_save_period = 0
-        if ACTIVATE_CHECKPOINT_SAVE:
+        if ACTIVATE_CHECKPOINT_SAVE is True:
             self.model_save_period = len(self.train_loader)
 
-        optimizer = AdamW(model.parameters(), lr=self.init_learning_rate, betas=self.betas, eps=self.eps_adam, weight_decay=self.weight_decay)
+        optimizer = AdamW(model.parameters(), lr=self.init_learning_rate, betas=self.betas, eps=self.eps_adam,
+                          weight_decay=self.weight_decay)
         if self.logging_tool == 'tensorboard':
             writer = SummaryWriter(log_dir=self.log_folder_path)
             self.init_model_optimizer_logger(model, optimizer, writer=writer)
@@ -234,7 +242,7 @@ class ProjectionTrainer:
         elif self.projection_axis == 'y':
             self.related_cam_dim = self.image_size[1]
         else:
-            self.related_cam_dim = math.sqrt(self.image_size[0]**2 + self.image_size[1]**2)
+            self.related_cam_dim = math.sqrt(self.image_size[0] ** 2 + self.image_size[1] ** 2)
         self.normalized_hit_thr = THRESHOLD_CONST_FOR_HIT_PIXEL
 
         self.denorm_coeff = torch.tensor([self.image_size[1], self.image_size[0]], dtype=torch.float32,
@@ -307,7 +315,7 @@ class ProjectionTrainer:
             # different dimensions of the cameras whose aspect ratio other than 1, we need to re-normalize them by
             # considering the pixel height and widths.
             targets_norm = targets_norm * np.array(self.image_size) / math.sqrt(
-                self.image_size[0]**2 + self.image_size[1]**2)
+                self.image_size[0] ** 2 + self.image_size[1] ** 2)
         inputs_norm = torch.from_numpy(inputs_norm).float()
         targets_norm = torch.from_numpy(targets_norm).float()
         return TensorDataset(inputs_norm, targets_norm)
@@ -315,7 +323,7 @@ class ProjectionTrainer:
     def initialize_dataloader(self, data_json_path: str):
         data_ds = self.initialize_datasets(data_json_path)
         data_loader = None
-        if len(data_ds)> 0:
+        if len(data_ds) > 0:
             data_loader = DataLoader(
                 data_ds,
                 batch_size=self.batch_size,
@@ -341,7 +349,7 @@ class ProjectionTrainer:
         self.wandb_run = wandb.init(
             project='overhead_object_projection',
             name=folder_name,
-            group=self.projection_axis,
+            group=str(self.apply_coord_transform),
             job_type=self.driver,
             dir=self.log_folder_path,
             reinit=True,
@@ -364,7 +372,8 @@ class ProjectionTrainer:
         for param_count in range(len(self.optimizer.param_groups)):
             wandb.define_metric('learning_rate_' + str(param_count) + '/iteration', summary='none')
 
-    def init_model_optimizer_logger(self, model: RegressionModel, optimizer: AdamW, writer: Optional[SummaryWriter] = None):
+    def init_model_optimizer_logger(self, model: RegressionModel, optimizer: AdamW,
+                                    writer: Optional[SummaryWriter] = None):
         """
         Initialize the model, the optimizer and the logger (wandb or tensorboard)
 
@@ -385,11 +394,12 @@ class ProjectionTrainer:
         if self.loss_function == 'mse':
             self.criterion = Criterion_mse_loss()
         if self.loss_function == 'min_max_error':
-            self.criterion = Criterion_nth_power_loss(power_term=6)
+            self.criterion = Criterion_nth_power_loss(power_term=4)
 
         total_steps = self.max_epoch * len(self.train_loader)
         if self.scheduler_type == 'reduce_plateau':
-            self.model_lr_scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=self.loss_patience, verbose=True)
+            self.model_lr_scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=self.loss_patience,
+                                                                     verbose=True)
         elif self.scheduler_type == 'lambda':  # time-based decay lambda function is used.
             lambda_lr = lambda iter_count: (float)(max(total_steps - iter_count, 0)) / (float)(total_steps)
             self.model_lr_scheduler = lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda_lr)
@@ -400,7 +410,8 @@ class ProjectionTrainer:
         elif self.scheduler_type == 'step':
             lr_decrease_count = self.loss_decrease_count
             lr_dec_period = total_steps // (lr_decrease_count + 1)
-            self.model_lr_scheduler = lr_scheduler.StepLR(self.optimizer, step_size=lr_dec_period, gamma=self.loss_decrease_gamma)
+            self.model_lr_scheduler = lr_scheduler.StepLR(self.optimizer, step_size=lr_dec_period,
+                                                          gamma=self.loss_decrease_gamma)
 
         if self.use_mixed_precision is True:
             self.scaler = GradScaler()
@@ -527,7 +538,8 @@ class ProjectionTrainer:
         if mode == 'best_accuracy' or mode == 'least_loss':
             print(f'\nModel and optimizer parameters for the best performed iteration are saved in the {filename}.\n')
         else:
-            print(f'Model and optimizer parameters for the {self.iter_count}\'th iteration are saved in the {filename}.')
+            print(
+                f'Model and optimizer parameters for the {self.iter_count}\'th iteration are saved in the {filename}.')
 
     def validation(self):
         """
@@ -555,7 +567,7 @@ class ProjectionTrainer:
 
                 sample_count += abs_diffs.size(dim=0)
                 cum_hits += hit_count.item()
-                cum_validation_loss += torch.sum(loss.mean(dim=1)).item()
+                cum_validation_loss += torch.sum(loss).item()
 
             self.validation_loss = cum_validation_loss / sample_count
             print('Validation (iter {:8d}, loss {:.6f})'.format(self.iter_count, self.validation_loss))
@@ -598,7 +610,7 @@ class ProjectionTrainer:
             loss.mean().backward()
             self.optimizer.step()
         self.iter_count += 1
-        cum_loss = torch.sum(loss.mean(dim=1)).item()
+        cum_loss = torch.sum(loss).item()
         sample_count = loss.size(dim=0)
         return cum_loss, sample_count
 
@@ -743,7 +755,7 @@ class ProjectionTrainer:
         """
         print('-' * 50)
         print("Reading the projection estimation model ")
-        self.checkpoint = torch.load(self.best_model_path, map_location=torch.device(self.device))
+        self.checkpoint = torch.load(os.path.join(self.model_output_folder_path, self.test_model_mode + '.pth'), map_location=torch.device(self.device))
 
     def run_test(self):
         """
@@ -783,7 +795,7 @@ class ProjectionTrainer:
                     hit_count_pixel = torch.sum((abs_diffs_pixel <= self.normalized_hit_thr).to(int))
                     cum_test_hit_count_pixel += hit_count_pixel.item()
 
-                    cum_test_loss += torch.sum(loss.mean(dim=1)).item()
+                    cum_test_loss += torch.sum(loss).item()
                     test_sample_count += loss.size(dim=0)
 
                     cum_abs_diff += torch.sum(abs_diffs_pixel).item()
@@ -798,7 +810,8 @@ class ProjectionTrainer:
 
                         dist = torch.zeros([denorm_output_shifted.shape[0], 2], dtype=torch.float32, device=self.device)
                         for i in range(denorm_output_shifted.shape[0]):
-                            dist[i] = self.pixel_world_coords[denorm_output_shifted[i][1], denorm_output_shifted[i][0], :] - \
+                            dist[i] = self.pixel_world_coords[denorm_output_shifted[i][1], denorm_output_shifted[i][0],
+                                      :] - \
                                       self.pixel_world_coords[denorm_pred_shifted[i][1], denorm_pred_shifted[i][0], :]
                         abs_diffs_distance = torch.linalg.norm(dist, dim=1)
                         hit_count_distance = torch.sum((abs_diffs_distance <= THRESHOLD_FOR_HIT_DISTANCE).to(int))
@@ -811,18 +824,18 @@ class ProjectionTrainer:
                 self.test_loss = cum_test_loss / test_sample_count
                 print('Test loss {:.6f}'.format(self.test_loss))
                 self.test_accuracy_pixel = cum_test_hit_count_pixel / len(self.test_ds)
-                print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
+                print('Test accuracy (pixel): ({:.6f})'.format(self.test_accuracy_pixel))
                 self.mean_test_pixel_error = (cum_abs_diff * self.related_cam_dim) / len(self.test_ds)
-                print('Mean test pixel error: ({:.6f})'.format(self.mean_test_pixel_error))
+                print('Mean test error (pixel): ({:.6f})'.format(self.mean_test_pixel_error))
                 self.max_test_pixel_error = max_diff * self.related_cam_dim
-                print('Max test pixel error: ({:.6f})'.format(self.max_test_pixel_error))
+                print('Max test error (pixel): ({:.6f})'.format(self.max_test_pixel_error))
 
                 if self.is_dist_map_enabled is True:
                     self.test_accuracy_distance = cum_test_hit_count_distance / len(self.test_ds)
-                    print('Test accuracy: ({:.6f})'.format(self.test_accuracy_pixel))
+                    print('Test accuracy (distance): ({:.6f})'.format(self.test_accuracy_distance))
                     self.mean_test_distance_error = cum_abs_diff_distance / len(self.test_ds)
-                    print('Mean test distance error: ({:.6f})'.format(self.mean_test_distance_error))
-                    print('Max test distance error: ({:.6f})'.format(self.max_test_distance_error))
+                    print('Mean test error (distance): ({:.6f})'.format(self.mean_test_distance_error))
+                    print('Max test error (distance): ({:.6f})'.format(self.max_test_distance_error))
 
                 self.save_log_iteration_test()
                 if self.logging_tool == 'tensorboard':
@@ -835,8 +848,9 @@ class ProjectionTrainer:
 
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
-    parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'], default='manual')
-    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings.ini")
+    parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'],
+                        default='manual')
+    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings_1.ini")
 
     args = parser.parse_args()
     driver_ = args.driver
