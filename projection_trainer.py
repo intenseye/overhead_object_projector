@@ -20,7 +20,7 @@ from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge,
     RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
 from utils import str2bool, read_settings, seed_worker
 from loss import Criterion_mse_loss, Criterion_nth_power_loss
-from temp_params_linear import param_sweep as param_sweep
+from temp_params_m import param_sweep as param_sweep
 
 NUM_WORKERS = 0  # Number of workers to load data
 THRESHOLD_CONST_FOR_HIT_PIXEL = 0.005  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
@@ -855,6 +855,32 @@ if __name__ == '__main__':
     args = parser.parse_args()
     driver_ = args.driver
     config_ = read_settings(args.settings_path)
+
+    # for sets in [1, 2, 3, 4, 5]:
+    #     # for dev_mode in ['bbox_dev', 'both_dev', 'no_dev', 'proj_dev']:
+    #     for dev_mode in ['both_dev']:
+    #         input_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/OverheadSimIntenseye/Set0" + str(sets) + "/" + dev_mode
+    #         config_.set("projection_trainer", "INPUT_FOLDER_PATH", input_dir_path)
+    #         # for apply_trains in ["True", "False"]:
+    #         for apply_trains in ["True"]:
+    #             config_.set("projection_trainer", "APPLY_COORD_TRANSFORM", apply_trains)
+    #             out_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/models/OverheadSimIntenseye_mod/Set0" + str(sets) + "/" + dev_mode + "/" + apply_trains + "/m_pow4"
+    #             config_.set("projection_trainer", "MAIN_OUTPUT_FOLDER", out_dir_path)
+    #             proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
+    #             proj_trainer.run_train()
+    #             proj_trainer.run_test()
+
+    # for sets in [1, 2]:
+    #     input_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/CraneIntenseye/Set0" + str(sets)
+    #     config_.set("projection_trainer", "INPUT_FOLDER_PATH", input_dir_path)
+    #     for apply_trains in ["True", "False"]:
+    #         config_.set("projection_trainer", "APPLY_COORD_TRANSFORM", apply_trains)
+    #         out_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/models/OverheadIntenseye_mod/Set0" + str(sets) + "/" + apply_trains + "/m_pow4"
+    #         config_.set("projection_trainer", "MAIN_OUTPUT_FOLDER", out_dir_path)
+    #         proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
+    #         proj_trainer.run_train()
+    #         proj_trainer.run_test()
+
     proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
     proj_trainer.run_train()
     proj_trainer.run_test()

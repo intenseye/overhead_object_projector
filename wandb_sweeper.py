@@ -22,7 +22,7 @@ def wandb_sweep_runner():
         config_to_run.update({args[0]: args[1]})
     params.update(config_to_run)
 
-    with open(os.path.join('temp_params_xl.py'), 'w') as convert_file:
+    with open(os.path.join('temp_params_m.py'), 'w') as convert_file:
         convert_file.write('param_sweep = ')
         convert_file.write(json.dumps(params))
 
