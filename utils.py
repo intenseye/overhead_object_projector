@@ -131,12 +131,13 @@ def apply_radial_dist(point: np.ndarray, cx: float, cy: float, k_1: float, k_2: 
     distorted_point: np.ndarray
         Location of the point in image space after applying the distortion.
     """
+    distorted_point = np.array([-10000, -10000])
     norm_dist_x, norm_dist_y = (np.array(point) - np.array((cx, cy))) / np.array((cx, cy))
     r2 = norm_dist_x ** 2 + norm_dist_y ** 2
-    distorted_point = np.array([-10000, -10000])
-    distortion_coeff_x = 1 + k_1 * r2 + k_2 * r2 ** 2
-    distortion_coeff_y = 1 + k_1 * r2 + k_2 * r2 ** 2
-    if distortion_coeff_x > 0 and distortion_coeff_y > 0:
-        distorted_point = np.array((norm_dist_x * distortion_coeff_x, norm_dist_y * distortion_coeff_y)) * np.array(
-            (cx, cy)) + np.array((cx, cy))
+    if r2 < 4:
+        distortion_coeff_x = 1 + k_1 * r2 + k_2 * r2 ** 2
+        distortion_coeff_y = 1 + k_1 * r2 + k_2 * r2 ** 2
+        if distortion_coeff_x > 0.5 and distortion_coeff_y > 0.5:
+            distorted_point = np.array((norm_dist_x * distortion_coeff_x, norm_dist_y * distortion_coeff_y)) * np.array(
+                (cx, cy)) + np.array((cx, cy))
     return distorted_point
