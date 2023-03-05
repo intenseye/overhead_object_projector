@@ -47,6 +47,25 @@ left, right = plt.xlim()
 plt.hlines(0, xmin=left, xmax=right, color='r', linestyles='--')
 plt.show()
 
+both_dev = list(range(0, 5))
+proj_dev = list(range(5, 10))
+bbox_dev = list(range(10, 15))
+no_dev = list(range(15, 20))
+
+diff['both_dev'] = [diff['xs'][i] for i in both_dev] + [diff['s'][i] for i in both_dev] + [diff['m'][i] for i in both_dev] + [diff['l'][i] for i in both_dev] + [diff['xl'][i] for i in both_dev]
+diff['proj_dev'] = [diff['xs'][i] for i in proj_dev] + [diff['s'][i] for i in proj_dev] + [diff['m'][i] for i in proj_dev] + [diff['l'][i] for i in proj_dev] + [diff['xl'][i] for i in proj_dev]
+diff['bbox_dev'] = [diff['xs'][i] for i in bbox_dev] + [diff['s'][i] for i in bbox_dev] + [diff['m'][i] for i in bbox_dev] + [diff['l'][i] for i in bbox_dev] + [diff['xl'][i] for i in bbox_dev]
+diff['no_dev'] = [diff['xs'][i] for i in no_dev] + [diff['s'][i] for i in no_dev] + [diff['m'][i] for i in no_dev] + [diff['l'][i] for i in no_dev] + [diff['xl'][i] for i in no_dev]
+
+data = [np.array(diff['both_dev']), np.array(diff['proj_dev']), np.array(diff['bbox_dev']), np.array(diff['no_dev'])]
+fig = plt.figure(figsize=(10, 7))
+ax = fig.add_subplot(111)
+bp = ax.boxplot(data, patch_artist=True, vert=1)
+ax.set_xticklabels(['Default', 'OSIG=0', 'PSIG=0', 'OSIG=0, PSIG=0'])
+left, right = plt.xlim()
+plt.hlines(0, xmin=left, xmax=right, color='r', linestyles='--')
+plt.show()
+
 diff['Set01_Crane'] = [0.1061, 0.1515, -0.0455, -0.0303, 0.106]
 diff['Set02_Crane'] = [0.0267, 0, 0.0533, 0.0267, 0.08]
 
