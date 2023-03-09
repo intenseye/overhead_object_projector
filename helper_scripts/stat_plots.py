@@ -47,10 +47,10 @@ left, right = plt.xlim()
 plt.hlines(0, xmin=left, xmax=right, color='r', linestyles='--')
 plt.show()
 
-both_dev = list(range(0, 5))
-proj_dev = list(range(5, 10))
-bbox_dev = list(range(10, 15))
-no_dev = list(range(15, 20))
+both_dev = list(range(0, 5))  # Deviations are enabled for both bounding box and projection point
+proj_dev = list(range(5, 10))  # No deviations on the edges of the bounding box
+bbox_dev = list(range(10, 15))  # No deviations on the projection point of the overhead object
+no_dev = list(range(15, 20))  # No deviations on any of the edges of the bounding box and the projection point of the overhead object
 
 diff['both_dev'] = [diff['xs'][i] for i in both_dev] + [diff['s'][i] for i in both_dev] + [diff['m'][i] for i in both_dev] + [diff['l'][i] for i in both_dev] + [diff['xl'][i] for i in both_dev]
 diff['proj_dev'] = [diff['xs'][i] for i in proj_dev] + [diff['s'][i] for i in proj_dev] + [diff['m'][i] for i in proj_dev] + [diff['l'][i] for i in proj_dev] + [diff['xl'][i] for i in proj_dev]
