@@ -37,7 +37,7 @@ def delete_unlabelled_data(folder_path: str) -> None:
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to delete unlabelled content")
     parser.add_argument("--data_folder_path", help="Path to the json file including annotations.",
-                        default=r"/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/segezha")
+                        default=r"./datasets/CraneIntenseye/Set01")
 
     args = parser.parse_args()
     data_folder_path = args.data_folder_path

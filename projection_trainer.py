@@ -1,10 +1,10 @@
+from typing import Any, List, Tuple, Optional, Dict
 import os.path
 import random
 import math
 import json
 import pickle
 import sys
-from typing import Any, List, Tuple, Optional, Dict
 from argparse import ArgumentParser
 from configparser import ConfigParser
 from datetime import datetime
@@ -16,11 +16,11 @@ from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import wandb
-from models import RegressionModel, RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, \
-    RegressionModelSmall, RegressionModelXSmall, RegressionModelLinear
-from utils import str2bool, read_settings, seed_worker
-from loss import Criterion_mse_loss, Criterion_nth_power_loss
-from temp_params_m import param_sweep as param_sweep
+from loss_model_utils.models import OverProjNet, OverProjNetXL, OverProjNetL, OverProjNetM, \
+    OverProjNetS, OverProjNetXS, OverProjNetLinear, ProjectionAxis
+from loss_model_utils.utils import str2bool, read_settings, seed_worker
+from loss_model_utils.loss import Criterion_mse_loss, Criterion_nth_power_loss
+from temp_params.temp_params_m import param_sweep as param_sweep
 
 NUM_WORKERS = 0  # Number of workers to load data
 THRESHOLD_CONST_FOR_HIT_PIXEL = 0.005  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
@@ -41,7 +41,7 @@ def read_data(input_json_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
         Path to input file
 
     Returns
-    ----------
+    -------
     dataset_pairs: Tuple[np.ndarray, np.ndarray, np.ndarray]
         Read data from the txt file
     """
@@ -75,7 +75,24 @@ def read_data(input_json_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
         return data_read
 
 
-def transform_data(inputs, targets):
+def transform_data(inputs: np.ndarray, targets: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Transform input data and targets according to specific rules.
+
+    Parameters
+    ----------
+    inputs: np.ndarray
+        The input data, a 2D numpy array with shape (n_samples, n_features). It should have at least 4 columns.
+    targets: np.ndarray
+        The target data, a 2D numpy array with shape (n_samples, n_targets).
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        A tuple containing two 2D numpy arrays:
+        - inputs_transformed: The transformed input data with the same shape as inputs.
+        - targets_transformed: The transformed target data with the same shape as targets.
+    """
     inputs_transformed = np.copy(inputs)
     inputs_transformed[:, 0] = (inputs[:, 0] + inputs[:, 2]) / 2
     inputs_transformed[:, 1] = inputs[:, 3]
@@ -100,7 +117,7 @@ def normalize_points(inputs: np.ndarray, targets: np.ndarray, image_size: np.nda
         image_size
 
     Returns
-    ----------
+    -------
     normalized_data: Tuple[np.ndarray, np.ndarray]
         Normalized data
     """
@@ -134,17 +151,17 @@ class ProjectionTrainer:
         self.test_model_mode = param_sweep['test_model_mode']  # Defines the size of the networks.
 
         if self.network_size == 'xl':
-            centprojnet = RegressionModelXLarge
+            overprojnet = OverProjNetXL
         elif self.network_size == 'l':
-            centprojnet = RegressionModelLarge
+            overprojnet = OverProjNetL
         elif self.network_size == 'm':
-            centprojnet = RegressionModelMedium
+            overprojnet = OverProjNetM
         elif self.network_size == 's':
-            centprojnet = RegressionModelSmall
+            overprojnet = OverProjNetS
         elif self.network_size == 'xs':
-            centprojnet = RegressionModelXSmall
+            overprojnet = OverProjNetXS
         elif self.network_size == 'linear':
-            centprojnet = RegressionModelLinear
+            overprojnet = OverProjNetLinear
         else:
             raise ValueError("Invalid network size %s" % repr(self.network_size))
 
@@ -218,7 +235,7 @@ class ProjectionTrainer:
         self.test_ds, self.test_loader = self.initialize_dataloader(self.coordinates_file_test)
         if self.test_loader is not None:
             self.test_enabled = True
-        model = centprojnet(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis,
+        model = overprojnet(init_w_normal=self.init_w_normal, projection_axis=self.projection_axis,
                             use_batch_norm=self.use_batch_norm, batch_momentum=self.batch_momentum,
                             activation=self.activation)
 
@@ -237,9 +254,9 @@ class ProjectionTrainer:
             self.init_model_optimizer_logger(model, optimizer)
             self.initialize_wandb(time_stamp)
 
-        if self.projection_axis == 'x':
+        if self.projection_axis == ProjectionAxis.x:
             self.related_cam_dim = self.image_size[0]
-        elif self.projection_axis == 'y':
+        elif self.projection_axis == ProjectionAxis.y:
             self.related_cam_dim = self.image_size[1]
         else:
             self.related_cam_dim = math.sqrt(self.image_size[0] ** 2 + self.image_size[1] ** 2)
@@ -274,7 +291,7 @@ class ProjectionTrainer:
         self.coordinates_file_test = os.path.join(input_folder_path, 'split', 'coordinates_test.json')
         self.coordinates_file_val = os.path.join(input_folder_path, 'split', 'coordinates_val.json')
         self.auxiliary_data_path = os.path.join(input_folder_path, 'auxiliary_data.pickle')
-        self.projection_axis = config.get("projection_trainer", "PROJECTION_AXIS")
+        self.projection_axis = ProjectionAxis(config.get("projection_trainer", "PROJECTION_AXIS"))
 
     def load_distance_map(self, distance_map_path: str):
         """
@@ -294,7 +311,7 @@ class ProjectionTrainer:
 
     def initialize_datasets(self, input_json_path: str):
         """
-        Initialize the data loader after the normalization operation
+        Initialize the data loader after the normalization operation.
 
         Parameters
         ----------
@@ -306,9 +323,9 @@ class ProjectionTrainer:
         if self.apply_coord_transform is True:
             inputs, targets = transform_data(inputs, targets)
         inputs_norm, targets_norm = normalize_points(inputs, targets, self.image_size)
-        if self.projection_axis == 'x':
+        if self.projection_axis == ProjectionAxis.x:
             targets_norm = np.expand_dims(targets_norm[:, 0], axis=1)
-        elif self.projection_axis == 'y':
+        elif self.projection_axis == ProjectionAxis.x:
             targets_norm = np.expand_dims(targets_norm[:, 1], axis=1)
         else:
             # Since the normalized distance (normalized coordinates) does not indicate the same amount of distance for
@@ -321,6 +338,18 @@ class ProjectionTrainer:
         return TensorDataset(inputs_norm, targets_norm)
 
     def initialize_dataloader(self, data_json_path: str):
+        """
+        Initialize the data loader for the given data JSON file.
+
+        Parameters
+        ----------
+        data_json_path (str): Path to the data JSON file.
+
+        Returns
+        -------
+        Tuple[TensorDataset, Optional[DataLoader]]:
+            A tuple containing the initialized dataset and data loader (if data is available).
+        """
         data_ds = self.initialize_datasets(data_json_path)
         data_loader = None
         if len(data_ds) > 0:
@@ -372,7 +401,7 @@ class ProjectionTrainer:
         for param_count in range(len(self.optimizer.param_groups)):
             wandb.define_metric('learning_rate_' + str(param_count) + '/iteration', summary='none')
 
-    def init_model_optimizer_logger(self, model: RegressionModel, optimizer: AdamW,
+    def init_model_optimizer_logger(self, model: OverProjNet, optimizer: AdamW,
                                     writer: Optional[SummaryWriter] = None):
         """
         Initialize the model, the optimizer and the logger (wandb or tensorboard)
@@ -591,7 +620,7 @@ class ProjectionTrainer:
             Coordinates of the projection point
 
         Returns
-        ----------
+        -------
         forward_output: Tuple[float, int]
             Calculated loss value and sample count
         """
@@ -624,7 +653,7 @@ class ProjectionTrainer:
             A sample loaded from dataloader
 
         Returns
-        ----------
+        -------
         forward_output: -> Tuple[float, int]
             Calculated loss value and sample count
         """
@@ -850,7 +879,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(description="Script to train the projection_model")
     parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'],
                         default='manual')
-    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings_1.ini")
+    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings/settings_1.ini")
 
     args = parser.parse_args()
     driver_ = args.driver

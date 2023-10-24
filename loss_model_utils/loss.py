@@ -25,7 +25,7 @@ class Criterion_mse_loss(nn.Module):
             Target value
 
         Returns
-        ----------
+        -------
         loss: torch.Tensor
             The loss value
         """
@@ -62,12 +62,12 @@ class Criterion_nth_power_loss(nn.Module):
             Target value
 
         Returns
-        ----------
-        loss: torch.Tensor
+        -------
+        n_power_loss: torch.Tensor
             The loss value
         """
-        loss = self.loss(output, target)
-        return loss
+        n_power_loss = self.loss(output, target)
+        return n_power_loss
 
     def loss(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
@@ -81,7 +81,7 @@ class Criterion_nth_power_loss(nn.Module):
             Target value
 
         Returns
-        ----------
+        -------
         power_loss: torch.Tensor
             The loss value
         """

@@ -1,6 +1,6 @@
 import sys
 import os
-import cv2
+import cv2.cv2 as cv2
 import json
 from datetime import datetime
 import random
@@ -14,7 +14,7 @@ import shutil
 from numpy import ndarray
 from tqdm import tqdm
 from argparse import ArgumentParser
-from utils import str2bool, read_settings, connect_and_draw_points, cotan, apply_radial_dist
+from loss_model_utils.utils import str2bool, read_settings, connect_and_draw_points, cotan, apply_radial_dist
 
 FIXED_SEED_NUM = 35  # Seed number
 GREEN_COLOR = (0, 255, 0)  # Green color code
@@ -25,8 +25,7 @@ HALF_PIXEL_SIZE = 1 / 2
 CAM_REGION_EXPAND_RATIO = 5.0  # Expanding ratio of original image. Odd integer number is advised.
 
 
-def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[
-    Union[float, Any], ndarray, Any]:
+def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) -> Tuple[Union[float, Any], ndarray, Any]:
     """
     Calculates input and target data points to be used in the model.
 
@@ -38,7 +37,7 @@ def calculate_input_coord(bbox: List[Tuple[float]], proj_mid: List[np.ndarray]) 
         Coordinates of the projection point in the image.
 
     Returns
-    ----------
+    -------
     input_coords: Tuple[Union[float, Any], ndarray, Any]
         Input coordinates to be fed to the projection point estimator.
     """
@@ -120,7 +119,7 @@ class PointEstimatorProjection:
         center.
 
         Returns
-        ----------
+        -------
         K: np.ndarray
             Camera calibration matrix K
         """
@@ -133,7 +132,8 @@ class PointEstimatorProjection:
         )
         return K
 
-    def get_rot_x(self, angle: float):
+    @staticmethod
+    def get_rot_x(angle: float):
         """
         Rotation matrix around X-axis
 
@@ -143,7 +143,7 @@ class PointEstimatorProjection:
             Camera rotation angle around X-axis in radians
 
         Returns
-        ----------
+        -------
         R_x: np.ndarray
             Rotation matrix of camera around X-axis
         """
@@ -159,7 +159,8 @@ class PointEstimatorProjection:
         R_x[2, 2] = cos_ang
         return R_x
 
-    def get_rot_y(self, angle: float):
+    @staticmethod
+    def get_rot_y(angle: float):
         """
         Rotation matrix around Y-axis
 
@@ -169,7 +170,7 @@ class PointEstimatorProjection:
             Camera rotation angle around Y-axis in radians
 
         Returns
-        ----------
+        -------
         R_y: np.ndarray
             Rotation matrix of camera around Y-axis
 
@@ -185,7 +186,8 @@ class PointEstimatorProjection:
         R_y[2, 2] = cos_ang
         return R_y
 
-    def get_rot_z(self, angle: float) -> np.ndarray:
+    @staticmethod
+    def get_rot_z(angle: float) -> np.ndarray:
         """
         Rotation matrix around Z-axis
 
@@ -195,7 +197,7 @@ class PointEstimatorProjection:
             Camera rotation angle around Z-axis in radians
 
         Returns
-        ----------
+        -------
         R_z: np.ndarray
             Rotation matrix of camera around Z-axis
         """
@@ -223,7 +225,7 @@ class PointEstimatorProjection:
             Camera rotation angle orders
 
         Returns
-        ----------
+        -------
         R: np.ndarray
             Rotation matrix of the camera
         """
@@ -280,7 +282,7 @@ class PointEstimatorProjection:
             Relative location w.r.t camera center
 
         Returns
-        ----------
+        -------
         x_norm: np.ndarray
             Pixel coordinate of the object point
         """
@@ -370,7 +372,7 @@ class PointEstimatorProjection:
         deviation_mode: str
             Deviation mode
         Returns
-        ----------
+        -------
         pixel_points: Any:
             Pixel points of various locations
         """
@@ -409,7 +411,6 @@ class PointEstimatorProjection:
             point_p_cen = apply_radial_dist(point_p_cen, self.cx, self.cy, self.k_1, self.k_2)
 
         # Find limits of the bbox
-        # TODO not sure that in between points can get maximum value. If not we may need to prove it.
         bbox_bottom = max(point_o_blf[1], point_o_blb[1], point_o_brf[1], point_o_brb[1])
         bbox_top = min(point_o_tlf[1], point_o_tlb[1], point_o_trf[1], point_o_trb[1])
         bbox_right = max(point_o_tlf[0], point_o_tlb[0], point_o_trf[0], point_o_trb[0], point_o_blf[0], point_o_blb[0],
@@ -466,7 +467,7 @@ def produce_data(config: ConfigParser, settings_path: str):
     settings_path: str
         Path to the settings file.
     """
-    print('Sample collection is started!')
+    print('Data sample generation is started!')
     process_time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
     demo_mode = str2bool(config.get("sample_producer", "DEMO_MODE"))
     draw_enabled = str2bool(config.get("sample_producer", "DRAW_ENABLED"))
@@ -544,9 +545,9 @@ def produce_data(config: ConfigParser, settings_path: str):
                     if not ((0 <= bbox_top_left[deviation][0]) and (
                             bbox_bottom_right[deviation][0] < cam_pixel_width) and (
                                     bbox_top_left[deviation][1] >= 0) and (
-                            bbox_bottom_right[deviation][1] < cam_pixel_height) and (
+                                    bbox_bottom_right[deviation][1] < cam_pixel_height) and (
                                     0 <= proj_coord[deviation][0] < cam_pixel_width) and (
-                            0 <= proj_coord[deviation][1] < cam_pixel_height)):
+                                    0 <= proj_coord[deviation][1] < cam_pixel_height)):
                         completely_seen = False
                         break
 
@@ -632,7 +633,7 @@ def produce_data(config: ConfigParser, settings_path: str):
 if __name__ == '__main__':
     parser = ArgumentParser(
         description="Script to produce data including the position of the overhead object and projection point.")
-    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings_5.ini")
+    parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings/settings_1.ini")
 
     args = parser.parse_args()
     config_ = read_settings(args.settings_path)

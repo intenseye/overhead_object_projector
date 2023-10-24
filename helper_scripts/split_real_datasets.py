@@ -72,13 +72,10 @@ def split_dataset(folder_path: str, validation_ratio: float, test_ratio: float,
 if __name__ == '__main__':
     parser = ArgumentParser(description="Script to delete unlabelled content")
     parser.add_argument("--data_folder_path", help="Path to the json file including annotations.",
-                        default=r"/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/matay")
-    parser.add_argument("--val_ratio", help="Validation split data ratio.",
-                        default='0.15')
-    parser.add_argument("--test_ratio", help="Test split data ratio.",
-                        default='0.15')
-    parser.add_argument("--train_ratio", help="Test split data ratio.",
-                        default=None)
+                        default=r"./datasets/CraneIntenseye/Set01")
+    parser.add_argument("--val_ratio", help="Validation split data ratio.", default='0.15')
+    parser.add_argument("--test_ratio", help="Test split data ratio.", default='0.15')
+    parser.add_argument("--train_ratio", help="Test split data ratio.", default=None)
 
     args = parser.parse_args()
     data_folder_path = args.data_folder_path

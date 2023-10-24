@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 from argparse import ArgumentParser
-from models import RegressionModelXLarge, RegressionModelLarge, RegressionModelMedium, RegressionModelSmall, \
-    RegressionModelXSmall
+from loss_model_utils.models import OverProjNetXL, OverProjNetL, OverProjNetM, \
+    OverProjNetS, OverProjNetXS, ActivationType, ProjectionAxis
 
 REP_COUNT = 100
 WARM_UP_COUNT = 10
@@ -20,28 +20,28 @@ def measure_time_throughput(network_size, batch_size):
         Batch size
 
     Returns
-    ----------
+    -------
     Tuple[np.ndarray, np.ndarray, np.ndarray]
         Measurements
     """
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
     if network_size == 'xl':
-        centprojnet = RegressionModelXLarge
+        overprojnet = OverProjNetXL
     elif network_size == 'l':
-        centprojnet = RegressionModelLarge
+        overprojnet = OverProjNetL
     elif network_size == 'm':
-        centprojnet = RegressionModelMedium
+        overprojnet = OverProjNetM
     elif network_size == 's':
-        centprojnet = RegressionModelSmall
+        overprojnet = OverProjNetS
     elif network_size == 'xs':
-        centprojnet = RegressionModelXSmall
+        overprojnet = OverProjNetXS
     else:
         raise ValueError("Invalid network size %s" % repr(network_size))
 
-    model = centprojnet(init_w_normal=False, projection_axis="both",
+    model = overprojnet(init_w_normal=False, projection_axis=ProjectionAxis.both,
                         use_batch_norm=False, batch_momentum=0,
-                        activation="relu")
+                        activation=ActivationType.RELU)
     device = torch.device("cuda")
     model.to(device)
     dummy_input = torch.randn(batch_size, 4, dtype=torch.float).to(device)

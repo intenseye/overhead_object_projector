@@ -3,9 +3,9 @@ import os
 from argparse import ArgumentParser
 
 
-def delete_unlabelled_data(main_folder_path: str) -> None:
+def delete_unused_simulation_data(main_folder_path: str) -> None:
     """
-    Deletes unlabelled data and json fields
+    Deletes unused data and json fields
 
     Parameters
     ----------
@@ -42,10 +42,10 @@ def delete_unlabelled_data(main_folder_path: str) -> None:
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description="Script to delete unlabelled content")
+    parser = ArgumentParser(description="Script to delete unused content")
     parser.add_argument("--data_folder_path", help="Path to the json file including annotations.",
-                        default=r"/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/OverheadSimIntenseye/Set04")
+                        default=r"./datasets/OverheadSimIntenseye/Set01")
 
     args = parser.parse_args()
     data_folder_path = args.data_folder_path
-    delete_unlabelled_data(data_folder_path)
+    delete_unused_simulation_data(data_folder_path)

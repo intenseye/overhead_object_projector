@@ -1,11 +1,12 @@
-from typing import Any
+from typing import Iterator
+from enum import Enum
 import torch
 import torch.nn as nn
 
 CONSTANT_STD = 0.01  # standard deviation value used for normally-distributed weight initialization
 
 
-def init_with_normal(modules: Any):
+def init_with_normal(modules: Iterator[nn.Module]):
     """
     Initialize the weight values from the normal distribution
 
@@ -19,52 +20,84 @@ def init_with_normal(modules: Any):
             nn.init.normal_(m.weight.data, mean=0.0, std=CONSTANT_STD)
 
 
-def set_activation_function(activation: str = 'relu') -> Any:
+class ActivationType(Enum):
+    """
+    Enumeration representing different activation types used in neural networks.
+
+    RELU: Rectified Linear Unit (ReLU) activation function.
+    PRELU: Parametric Rectified Linear Unit (PReLU) activation function.
+    LEAKY_RELU: Leaky Rectified Linear Unit (Leaky ReLU) activation function.
+    GELU: Gaussian Error Linear Unit (GELU) activation function.
+    ELU: Exponential Linear Unit (ELU) activation function.
+    SELU: Scaled Exponential Linear Unit (SELU) activation function.
+    """
+    RELU = 'relu'
+    PRELU = 'prelu'
+    LEAKY_RELU = 'leaky_relu'
+    GELU = 'gelu'
+    ELU = 'elu'
+    SELU = 'selu'
+
+
+def set_activation_function(activation: ActivationType = ActivationType.RELU) -> nn.Module:
     """
     Sets the activation function.
 
     Parameters
     ----------
-    activation: str
-        Activation tag
+    activation: ActivationType, optional
+        Activation type (default is ActivationType.RELU)
 
     Returns
-    ----------
-    activation_function: Any
+    -------
+    activation_function: nn.Module
         Activation function
     """
     activation_function = None
-    if activation == 'relu':
+    if activation == ActivationType.RELU:
         activation_function = nn.ReLU()
-    elif activation == 'prelu':
+    elif activation == ActivationType.PRELU:
         activation_function = nn.PReLU()
-    elif activation == 'leaky_reLU':
+    elif activation == ActivationType.LEAKY_RELU:
         activation_function = nn.LeakyReLU()
-    elif activation == 'gelu':
+    elif activation == ActivationType.GELU:
         activation_function = nn.GELU()
-    elif activation == 'elu':
+    elif activation == ActivationType.ELU:
         activation_function = nn.ELU()
-    elif activation == 'selu':
+    elif activation == ActivationType.SELU:
         activation_function = nn.SELU()
     return activation_function
 
 
-class RegressionModel(nn.Module):
+class ProjectionAxis(Enum):
     """
-    Regression Model base class
+    Enumeration representing different projection axes.
+    x represents projection along the x-axis.
+    y represents projection along the y-axis.
+    both represents projection along both x and y axes.
     """
-    def __init__(self, activation: str, use_batch_norm: bool):
+    x = 'x'
+    y = 'y'
+    both = 'both'
+
+
+class OverProjNet(nn.Module):
+    """
+    OverProjNet base class
+    """
+
+    def __init__(self, activation: ActivationType, use_batch_norm: bool):
         """
-        Initialize the base Regression Model class.
+        Initialize the base OverProjNet class.
 
         Parameters
         ----------
-        activation: str
+        activation: ActivationType
             Activation tag
         use_batch_norm: bool
             Enables batch normalization
         """
-        super(RegressionModel, self).__init__()
+        super(OverProjNet, self).__init__()
         self.use_batch_norm = use_batch_norm
         self.activation_function = set_activation_function(activation)
         self.linear_bias = True
@@ -78,30 +111,31 @@ class RegressionModel(nn.Module):
         init_with_normal(self.modules())
 
 
-class RegressionModelXLarge(RegressionModel):
+class OverProjNetXL(OverProjNet):
     """
-    XLarge Regression Model class
+    XLarge OverProjNet class
     """
-    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
-                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
+
+    def __init__(self, projection_axis: ProjectionAxis = ProjectionAxis.x, activation: ActivationType = ActivationType.RELU,
+                 init_w_normal: bool = False, use_batch_norm: bool = False, batch_momentum: float = 0.1):
         """
-        Initialize the XLarge Regression Model class.
+        Initialize the XLarge OverProjNet class.
 
         Parameters
         ----------
-        projection_axis: str
+        projection_axis: ProjectionAxis
             The projection axis
-        activation: str
+        activation: ActivationType
             Activation tag
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
             Enables batch normalization
-        batch_momentum: bool
+        batch_momentum: float
             Momentum value used in batch normalization
         """
 
-        super(RegressionModelXLarge, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+        super(OverProjNetXL, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
             self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
@@ -120,7 +154,7 @@ class RegressionModelXLarge(RegressionModel):
         self.linear6 = nn.Linear(256, 64, bias=self.linear_bias)
         self.linear7 = nn.Linear(64, 16, bias=self.linear_bias)
 
-        if projection_axis == 'both':
+        if projection_axis == ProjectionAxis.both:
             self.linear8 = nn.Linear(16, 2)
         else:
             self.linear8 = nn.Linear(16, 1)
@@ -138,72 +172,45 @@ class RegressionModelXLarge(RegressionModel):
             Input of the model
 
         Returns
-        ----------
+        -------
         x: torch.Tensor
             Output of the model
         """
 
-        x = self.linear1(x)
-        if self.use_batch_norm is True:
-            x = self.bn1(x)
-        x = self.activation_function(x)
-
-        x = self.linear2(x)
-        if self.use_batch_norm is True:
-            x = self.bn2(x)
-        x = self.activation_function(x)
-
-        x = self.linear3(x)
-        if self.use_batch_norm is True:
-            x = self.bn3(x)
-        x = self.activation_function(x)
-
-        x = self.linear4(x)
-        if self.use_batch_norm is True:
-            x = self.bn4(x)
-        x = self.activation_function(x)
-
-        x = self.linear5(x)
-        if self.use_batch_norm is True:
-            x = self.bn5(x)
-        x = self.activation_function(x)
-
-        x = self.linear6(x)
-        if self.use_batch_norm is True:
-            x = self.bn6(x)
-        x = self.activation_function(x)
-
-        x = self.linear7(x)
-        if self.use_batch_norm is True:
-            x = self.bn7(x)
-        x = self.activation_function(x)
+        for i in range(1, 8):
+            x = getattr(self, f'linear{i}')(x)
+            if self.use_batch_norm:
+                x = getattr(self, f'bn{i}')(x)
+            x = self.activation_function(x)
 
         x = self.linear8(x)
-
         return x
 
 
-class RegressionModelLarge(RegressionModel):
+class OverProjNetL(OverProjNet):
     """
-    Initialize the Large Regression Model class.
-
-    Parameters
-    ----------
-    projection_axis: str
-        The projection axis
-    activation: str
-        Activation tag
-    init_w_normal: bool
-        Enables the normal distribution based weight initialization
-    use_batch_norm: bool
-        Enables batch normalization
-    batch_momentum: bool
-        Momentum value used in batch normalization
+    Large OverProjNet class
     """
 
-    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
-                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
-        super(RegressionModelLarge, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+    def __init__(self, projection_axis: ProjectionAxis = ProjectionAxis.x, activation: ActivationType = ActivationType.RELU,
+                 init_w_normal: bool = False, use_batch_norm: bool = False, batch_momentum: float = 0.1):
+        """
+        Initialize the Large OverProjNet class.
+
+        Parameters
+        ----------
+        projection_axis: ProjectionAxis
+            The projection axis
+        activation: ActivationType
+            Activation tag
+        init_w_normal: bool
+            Enables the normal distribution based weight initialization
+        use_batch_norm: bool
+            Enables batch normalization
+        batch_momentum: float
+            Momentum value used in batch normalization
+        """
+        super(OverProjNetL, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
             self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
@@ -218,7 +225,7 @@ class RegressionModelLarge(RegressionModel):
         self.linear4 = nn.Linear(128, 64, bias=self.linear_bias)
         self.linear5 = nn.Linear(64, 16, bias=self.linear_bias)
 
-        if projection_axis == 'both':
+        if projection_axis == ProjectionAxis.both:
             self.linear6 = nn.Linear(16, 2)
         else:
             self.linear6 = nn.Linear(16, 1)
@@ -236,65 +243,47 @@ class RegressionModelLarge(RegressionModel):
             Input of the model
 
         Returns
-        ----------
+        -------
         x: torch.Tensor
             Output of the model
         """
 
-        x = self.linear1(x)
-        if self.use_batch_norm is True:
-            x = self.bn1(x)
-        x = self.activation_function(x)
-
-        x = self.linear2(x)
-        if self.use_batch_norm is True:
-            x = self.bn2(x)
-        x = self.activation_function(x)
-
-        x = self.linear3(x)
-        if self.use_batch_norm is True:
-            x = self.bn3(x)
-        x = self.activation_function(x)
-
-        x = self.linear4(x)
-        if self.use_batch_norm is True:
-            x = self.bn4(x)
-        x = self.activation_function(x)
-
-        x = self.linear5(x)
-        if self.use_batch_norm is True:
-            x = self.bn5(x)
-        x = self.activation_function(x)
+        for i in range(1, 6):
+            x = getattr(self, f'linear{i}')(x)
+            if self.use_batch_norm:
+                x = getattr(self, f'bn{i}')(x)
+            x = self.activation_function(x)
 
         x = self.linear6(x)
 
         return x
 
 
-class RegressionModelMedium(RegressionModel):
+class OverProjNetM(OverProjNet):
     """
-    Medium Regression Model class
+    Medium OverProjNet class
     """
-    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
-                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
+
+    def __init__(self, projection_axis: ProjectionAxis = ProjectionAxis.x, activation: ActivationType = ActivationType.RELU,
+                 init_w_normal: bool = False, use_batch_norm: bool = False, batch_momentum: float = 0.1):
         """
-        Initialize the Medium Regression Model class.
+        Initialize the Medium OverProjNet class.
 
         Parameters
         ----------
-        projection_axis: str
+        projection_axis: ProjectionAxis
             The projection axis
-        activation: str
+        activation: ActivationType
             Activation tag
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
             Enables batch normalization
-        batch_momentum: bool
+        batch_momentum: float
             Momentum value used in batch normalization
         """
 
-        super(RegressionModelMedium, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+        super(OverProjNetM, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
             self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
@@ -305,7 +294,7 @@ class RegressionModelMedium(RegressionModel):
         self.linear2 = nn.Linear(16, 64, bias=self.linear_bias)
         self.linear3 = nn.Linear(64, 16, bias=self.linear_bias)
 
-        if projection_axis == 'both':
+        if projection_axis == ProjectionAxis.both:
             self.linear4 = nn.Linear(16, 2)
         else:
             self.linear4 = nn.Linear(16, 1)
@@ -323,52 +312,46 @@ class RegressionModelMedium(RegressionModel):
             Input of the model
 
         Returns
-        ----------
+        -------
         x: torch.Tensor
             Output of the model
         """
 
-        x = self.linear1(x)
-        if self.use_batch_norm is True:
-            x = self.bn1(x)
-        x = self.activation_function(x)
-
-        x = self.linear2(x)
-        if self.use_batch_norm is True:
-            x = self.bn2(x)
-        x = self.activation_function(x)
-
-        x = self.linear3(x)
-        if self.use_batch_norm is True:
-            x = self.bn3(x)
-        x = self.activation_function(x)
+        for i in range(1, 4):
+            x = getattr(self, f'linear{i}')(x)
+            if self.use_batch_norm:
+                x = getattr(self, f'bn{i}')(x)
+            x = self.activation_function(x)
 
         x = self.linear4(x)
 
         return x
 
 
-class RegressionModelSmall(RegressionModel):
+class OverProjNetS(OverProjNet):
     """
-    Initialize the Small Regression Model class.
-
-    Parameters
-    ----------
-    projection_axis: str
-        The projection axis
-    activation: str
-        Activation tag
-    init_w_normal: bool
-        Enables the normal distribution based weight initialization
-    use_batch_norm: bool
-        Enables batch normalization
-    batch_momentum: bool
-        Momentum value used in batch normalization
+    Small OverProjNet class
     """
 
-    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
-                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
-        super(RegressionModelSmall, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+    def __init__(self, projection_axis: ProjectionAxis = ProjectionAxis.x, activation: ActivationType = ActivationType.RELU,
+                 init_w_normal: bool = False, use_batch_norm: bool = False, batch_momentum: float = 0.1):
+        """
+        Initialize the Small OverProjNet class.
+
+        Parameters
+        ----------
+        projection_axis: ProjectionAxis
+            The projection axis
+        activation: ActivationType
+            Activation tag
+        init_w_normal: bool
+            Enables the normal distribution based weight initialization
+        use_batch_norm: bool
+            Enables batch normalization
+        batch_momentum: float
+            Momentum value used in batch normalization
+        """
+        super(OverProjNetS, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
             self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
@@ -377,7 +360,7 @@ class RegressionModelSmall(RegressionModel):
         self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
         self.linear2 = nn.Linear(16, 16, bias=self.linear_bias)
 
-        if projection_axis == 'both':
+        if projection_axis == ProjectionAxis.both:
             self.linear3 = nn.Linear(16, 2)
         else:
             self.linear3 = nn.Linear(16, 1)
@@ -395,57 +378,54 @@ class RegressionModelSmall(RegressionModel):
             Input of the model
 
         Returns
-        ----------
+        -------
         x: torch.Tensor
             Output of the model
         """
 
-        x = self.linear1(x)
-        if self.use_batch_norm is True:
-            x = self.bn1(x)
-        x = self.activation_function(x)
-
-        x = self.linear2(x)
-        if self.use_batch_norm is True:
-            x = self.bn2(x)
-        x = self.activation_function(x)
+        for i in range(1, 3):
+            x = getattr(self, f'linear{i}')(x)
+            if self.use_batch_norm:
+                x = getattr(self, f'bn{i}')(x)
+            x = self.activation_function(x)
 
         x = self.linear3(x)
 
         return x
 
 
-class RegressionModelXSmall(RegressionModel):
+class OverProjNetXS(OverProjNet):
     """
-    XSmall Regression Model class
+    XSmall OverProjNet class
     """
-    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
-                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
+
+    def __init__(self, projection_axis: ProjectionAxis = ProjectionAxis.x, activation: ActivationType = ActivationType.RELU,
+                 init_w_normal: bool = False, use_batch_norm: bool = False, batch_momentum: float = 0.1):
         """
-        Initialize the XSmall Regression Model class.
+        Initialize the XSmall OverProjNet class.
 
         Parameters
         ----------
-        projection_axis: str
+        projection_axis: ProjectionAxis
             The projection axis
-        activation: str
+        activation: ActivationType
             Activation tag
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
             Enables batch normalization
-        batch_momentum: bool
+        batch_momentum: float
             Momentum value used in batch normalization
         """
 
-        super(RegressionModelXSmall, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+        super(OverProjNetXS, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
 
         if self.use_batch_norm is True:
             self.bn1 = nn.BatchNorm1d(16, momentum=batch_momentum)
 
         self.linear1 = nn.Linear(4, 16, bias=self.linear_bias)
 
-        if projection_axis == 'both':
+        if projection_axis == ProjectionAxis.both:
             self.linear2 = nn.Linear(16, 2)
         else:
             self.linear2 = nn.Linear(16, 1)
@@ -462,7 +442,7 @@ class RegressionModelXSmall(RegressionModel):
             Input of the model
 
         Returns
-        ----------
+        -------
         x: torch.Tensor
             Output of the model
         """
@@ -475,29 +455,32 @@ class RegressionModelXSmall(RegressionModel):
         return x
 
 
-class RegressionModelLinear(RegressionModel):
+class OverProjNetLinear(OverProjNet):
     """
-    Initialize the Linear Regression Model class.
-
-    Parameters
-    ----------
-    projection_axis: str
-        The projection axis
-    activation: str
-        Activation tag
-    init_w_normal: bool
-        Enables the normal distribution based weight initialization
-    use_batch_norm: bool
-        Enables batch normalization
-    batch_momentum: bool
-        Momentum value used in batch normalization
+    Linear OverProjNet class
     """
 
-    def __init__(self, projection_axis: str = 'x', activation: str = 'relu', init_w_normal: bool = False,
-                 use_batch_norm: bool = False, batch_momentum: float = 0.1):
-        super(RegressionModelLinear, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+    def __init__(self, projection_axis: ProjectionAxis = ProjectionAxis.x, activation: ActivationType = ActivationType.RELU,
+                 init_w_normal: bool = False, use_batch_norm: bool = False, batch_momentum: float = 0.1):
+        """
+        Initialize the Linear OverProjNet class.
 
-        if projection_axis == 'both':
+        Parameters
+        ----------
+        projection_axis: ProjectionAxis
+            The projection axis
+        activation: ActivationType
+            Activation tag
+        init_w_normal: bool
+            Enables the normal distribution based weight initialization
+        use_batch_norm: bool
+            Enables batch normalization
+        batch_momentum: float
+            Momentum value used in batch normalization
+        """
+        super(OverProjNetLinear, self).__init__(activation=activation, use_batch_norm=use_batch_norm)
+
+        if projection_axis == ProjectionAxis.both:
             self.linear1 = nn.Linear(4, 2)
         else:
             self.linear1 = nn.Linear(4, 1)
@@ -514,7 +497,7 @@ class RegressionModelLinear(RegressionModel):
             Input of the model
 
         Returns
-        ----------
+        -------
         x: torch.Tensor
             Output of the model
         """
