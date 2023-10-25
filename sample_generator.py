@@ -94,24 +94,24 @@ class PointEstimatorProjection:
         config: ConfigParser
             Configuration object
         """
-        self.fixed_seed = str2bool(config.get("sample_producer", "FIXED_SEED"))
-        self.cam_pixel_width = int(float(config.get("sample_producer", "CAM_PIXEL_WIDTH")))
-        self.cam_pixel_height = int(float(config.get("sample_producer", "CAM_PIXEL_HEIGHT")))
-        self.cam_fov_hor = float(config.get("sample_producer", "CAM_FOV_HOR"))
-        self.yaw_cam = float(config.get("sample_producer", "YAW_CAM"))
-        self.pitch_cam = float(config.get("sample_producer", "PITCH_CAM"))
-        self.roll_cam = float(config.get("sample_producer", "ROLL_CAM"))
-        self.cam_x = float(config.get("sample_producer", "CAM_X"))
-        self.cam_y = float(config.get("sample_producer", "CAM_Y"))
-        self.cam_z = float(config.get("sample_producer", "CAM_Z"))
-        self.obj_height = float(config.get("sample_producer", "OBJ_HEIGHT"))
-        self.obj_width = float(config.get("sample_producer", "OBJ_WIDTH"))
-        self.obj_length = float(config.get("sample_producer", "OBJ_LENGTH"))
-        self.radial_dist_enabled = str2bool(config.get("sample_producer", "RADIAL_DIST_ENABLED"))
-        self.deviation_sigma = float(config.get("sample_producer", "DEVIATON_SIGMA"))
-        self.k_1 = float(config.get("sample_producer", "K_1"))
-        self.k_2 = float(config.get("sample_producer", "K_2"))
-        self.export = str2bool(config.get("sample_producer", "EXPORT"))
+        self.fixed_seed = str2bool(config.get("sample_generator", "FIXED_SEED"))
+        self.cam_pixel_width = int(float(config.get("sample_generator", "CAM_PIXEL_WIDTH")))
+        self.cam_pixel_height = int(float(config.get("sample_generator", "CAM_PIXEL_HEIGHT")))
+        self.cam_fov_hor = float(config.get("sample_generator", "CAM_FOV_HOR"))
+        self.yaw_cam = float(config.get("sample_generator", "YAW_CAM"))
+        self.pitch_cam = float(config.get("sample_generator", "PITCH_CAM"))
+        self.roll_cam = float(config.get("sample_generator", "ROLL_CAM"))
+        self.cam_x = float(config.get("sample_generator", "CAM_X"))
+        self.cam_y = float(config.get("sample_generator", "CAM_Y"))
+        self.cam_z = float(config.get("sample_generator", "CAM_Z"))
+        self.obj_height = float(config.get("sample_generator", "OBJ_HEIGHT"))
+        self.obj_width = float(config.get("sample_generator", "OBJ_WIDTH"))
+        self.obj_length = float(config.get("sample_generator", "OBJ_LENGTH"))
+        self.radial_dist_enabled = str2bool(config.get("sample_generator", "RADIAL_DIST_ENABLED"))
+        self.deviation_sigma = float(config.get("sample_generator", "DEVIATON_SIGMA"))
+        self.k_1 = float(config.get("sample_generator", "K_1"))
+        self.k_2 = float(config.get("sample_generator", "K_2"))
+        self.export = str2bool(config.get("sample_generator", "EXPORT"))
 
     def calc_camera_calibration_matrix(self) -> np.ndarray:
         """
@@ -469,29 +469,29 @@ def produce_data(config: ConfigParser, settings_path: str):
     """
     print('Data sample generation is started!')
     process_time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
-    demo_mode = str2bool(config.get("sample_producer", "DEMO_MODE"))
-    draw_enabled = str2bool(config.get("sample_producer", "DRAW_ENABLED"))
-    cam_pixel_width = int(float(config.get("sample_producer", "CAM_PIXEL_WIDTH")))
-    cam_pixel_height = int(float(config.get("sample_producer", "CAM_PIXEL_HEIGHT")))
-    search_distance_step = float(config.get("sample_producer", "SEARCH_DISTANCE_STEP"))
-    z_search_min = float(config.get("sample_producer", "Z_SEARCH_MIN"))
-    z_search_max = float(config.get("sample_producer", "Z_SEARCH_MAX"))
-    z_search_count = int(float(config.get("sample_producer", "Z_SEARCH_COUNT")))
-    x_search_min = float(config.get("sample_producer", "X_SEARCH_MIN"))
-    x_search_max = float(config.get("sample_producer", "X_SEARCH_MAX"))
-    y_search_min = float(config.get("sample_producer", "Y_SEARCH_MIN"))
-    y_search_max = float(config.get("sample_producer", "Y_SEARCH_MAX"))
-    obj_height = float(config.get("sample_producer", "OBJ_HEIGHT"))
-    rotate_angle_min = float(config.get("sample_producer", "ROTATE_ANGLE_MIN"))
-    rotate_angle_max = float(config.get("sample_producer", "ROTATE_ANGLE_MAX"))
-    random_deviation_modes = config.get("sample_producer", "RANDOM_DEVIATION_MODES").split(',')
+    demo_mode = str2bool(config.get("sample_generator", "DEMO_MODE"))
+    draw_enabled = str2bool(config.get("sample_generator", "DRAW_ENABLED"))
+    cam_pixel_width = int(float(config.get("sample_generator", "CAM_PIXEL_WIDTH")))
+    cam_pixel_height = int(float(config.get("sample_generator", "CAM_PIXEL_HEIGHT")))
+    search_distance_step = float(config.get("sample_generator", "SEARCH_DISTANCE_STEP"))
+    z_search_min = float(config.get("sample_generator", "Z_SEARCH_MIN"))
+    z_search_max = float(config.get("sample_generator", "Z_SEARCH_MAX"))
+    z_search_count = int(float(config.get("sample_generator", "Z_SEARCH_COUNT")))
+    x_search_min = float(config.get("sample_generator", "X_SEARCH_MIN"))
+    x_search_max = float(config.get("sample_generator", "X_SEARCH_MAX"))
+    y_search_min = float(config.get("sample_generator", "Y_SEARCH_MIN"))
+    y_search_max = float(config.get("sample_generator", "Y_SEARCH_MAX"))
+    obj_height = float(config.get("sample_generator", "OBJ_HEIGHT"))
+    rotate_angle_min = float(config.get("sample_generator", "ROTATE_ANGLE_MIN"))
+    rotate_angle_max = float(config.get("sample_generator", "ROTATE_ANGLE_MAX"))
+    random_deviation_modes = config.get("sample_generator", "RANDOM_DEVIATION_MODES").split(',')
     random_deviation_modes = [deviation.lstrip(' ').rstrip(' ') for deviation in random_deviation_modes]
 
-    export = str2bool(config.get("sample_producer", "EXPORT"))
+    export = str2bool(config.get("sample_generator", "EXPORT"))
 
     output_folder_path = {}
     for deviation in random_deviation_modes:
-        output_folder_path[deviation] = os.path.join(config.get("sample_producer", "OUTPUT_FOLDER_PATH"),
+        output_folder_path[deviation] = os.path.join(config.get("sample_generator", "OUTPUT_FOLDER_PATH"),
                                                      process_time_stamp, deviation)
     relative_image_folder_path = 'images'
     coordinates_data_file_name = 'coordinates.json'

@@ -20,7 +20,13 @@ from loss_model_utils.models import OverProjNet, OverProjNetXL, OverProjNetL, Ov
     OverProjNetS, OverProjNetXS, OverProjNetLinear, ProjectionAxis
 from loss_model_utils.utils import str2bool, read_settings, seed_worker
 from loss_model_utils.loss import Criterion_mse_loss, Criterion_nth_power_loss
-from temp_params.temp_params_m import param_sweep as param_sweep
+from temp_params.temp_params_l import param_sweep as param_sweep_l
+from temp_params.temp_params_linear import param_sweep as param_sweep_linear
+from temp_params.temp_params_m import param_sweep as param_sweep_m
+from temp_params.temp_params_m_pow4 import param_sweep as param_sweep_m_pow4
+from temp_params.temp_params_s import param_sweep as param_sweep_s
+from temp_params.temp_params_xl import param_sweep as param_sweep_xl
+from temp_params.temp_params_xs import param_sweep as param_sweep_xs
 
 NUM_WORKERS = 0  # Number of workers to load data
 THRESHOLD_CONST_FOR_HIT_PIXEL = 0.005  # Hit distance threshold between the prediction and ground truth (in pixels). The distance
@@ -28,6 +34,12 @@ THRESHOLD_CONST_FOR_HIT_PIXEL = 0.005  # Hit distance threshold between the pred
 THRESHOLD_FOR_HIT_DISTANCE = 0.5  # Hit distance threshold between the prediction and ground truth (in meters). The distance
 # determines either a detection is true positive (if less than pr equal to the given threshold) or false positive etc.
 FIXED_SEED_NUM = 6  # Seed number
+# Number of loss decreasing used for StepLR type scheduler
+LOSS_DECREASE_COUNT = 4
+# Gamma value used for StepLR type scheduler
+LOSS_DECREASE_GAMMA = 0.1
+# Patience value used for ReduceLROnPlateau type scheduler
+LOSS_PATIENCE = 2
 ACTIVATE_CHECKPOINT_SAVE = False
 
 
@@ -132,7 +144,7 @@ class ProjectionTrainer:
     Projection trainer class
     """
 
-    def __init__(self, driver: str, config: ConfigParser):
+    def __init__(self, driver: str, config: ConfigParser, network_size: str):
         """
         Initialize the Projection trainer class.
 
@@ -143,52 +155,62 @@ class ProjectionTrainer:
         config: ConfigParser
             Configuration object containing the settings.
         """
+        time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
+        print('Model and log time stamp folder: ' + str(time_stamp))
+
         self.initialize_config(config)
         print('Overhead object projection training is started.')
 
         self.driver = driver
-        self.network_size = param_sweep['network_size']  # Defines the size of the networks.
-        self.test_model_mode = param_sweep['test_model_mode']  # Defines the size of the networks.
+        self.network_size = network_size
 
         if self.network_size == 'xl':
             overprojnet = OverProjNetXL
+            param_sweep = param_sweep_xl
         elif self.network_size == 'l':
             overprojnet = OverProjNetL
+            param_sweep = param_sweep_l
         elif self.network_size == 'm':
             overprojnet = OverProjNetM
+            param_sweep = param_sweep_m
+        elif self.network_size == 'm_pow4':
+            overprojnet = OverProjNetM
+            param_sweep = param_sweep_m_pow4
         elif self.network_size == 's':
             overprojnet = OverProjNetS
+            param_sweep = param_sweep_s
         elif self.network_size == 'xs':
             overprojnet = OverProjNetXS
+            param_sweep = param_sweep_xs
         elif self.network_size == 'linear':
             overprojnet = OverProjNetLinear
+            param_sweep = param_sweep_linear
         else:
             raise ValueError("Invalid network size %s" % repr(self.network_size))
 
+        self.test_model_mode = param_sweep['test_model_mode']  # Defines the size of the networks.
         self.batch_size = int(float(param_sweep['batch_size']))  # Defines the batch size
-        self.activation = param_sweep[
-            'activation']  # Defines the activation function to be used in hidden layers of networks
+        self.activation = param_sweep['activation']  # Defines the activation function to be used in hidden layers of networks
         self.loss_function = param_sweep['loss_function_reg']  # Defines the loss function
-        time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
-        print('Model and log time stamp folder: ' + str(time_stamp))
+        self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
+        self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])  # Enables mixed precision operations.
+        self.max_epoch = int(float(param_sweep['max_epoch']))  # Maximum number of training epoch.
+        self.init_learning_rate = float(param_sweep['init_learning_rate'])  # Initial learning rate (except for OneCycleLR. OneCycleLR uses this value as the maximum learning rate).
+        self.scheduler_type = param_sweep['scheduler_type']  # The scheduler type. ('reduce_plateau', 'lambda', 'one_cycle', 'step')
+        self.betas = (float(param_sweep['betas_0']), float(param_sweep['betas_1']))  # Beta values used in AdamW optimizer.
+        self.weight_decay = float(param_sweep['weight_decay'])  # weight decay value used in AdamW optimizer.
+        self.eps_adam = float(param_sweep['eps_adam'])  # epsilon value used in AdamW optimizer.
+
+        self.loss_patience = LOSS_PATIENCE
+        self.loss_decrease_count = LOSS_DECREASE_COUNT
+        self.loss_decrease_gamma = LOSS_DECREASE_GAMMA
+
         self.device = torch.device(self.device)
         self.logging_tool = self.logging_tool
         self.num_workers = NUM_WORKERS
         self.model_output_folder_path = os.path.join(self.main_output_folder, 'models', self.driver,
                                                      time_stamp)  # Model output folder
         self.log_folder_path = os.path.join(self.main_output_folder, 'logs', self.driver, time_stamp)  # Log folder
-
-        self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
-        self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])  # Enables mixed precision operations.
-        self.max_epoch = int(float(param_sweep['max_epoch']))  # Maximum number of training epoch.
-        self.init_learning_rate = float(param_sweep[
-                                            'init_learning_rate'])  # Initial learning rate (except for OneCycleLR. OneCycleLR uses this value as the maximum learning rate).
-        self.scheduler_type = param_sweep[
-            'scheduler_type']  # The scheduler type. ('reduce_plateau', 'lambda', 'one_cycle', 'step')
-        self.betas = (float(param_sweep['betas_0']),  # Beta values used in AdamW optimizer.
-                      float(param_sweep['betas_1']))
-        self.weight_decay = float(param_sweep['weight_decay'])  # weight decay value used in AdamW optimizer.
-        self.eps_adam = float(param_sweep['eps_adam'])  # epsilon value used in AdamW optimizer.
 
         if str(self.device) != 'cpu':
             torch.cuda.set_device(self.device)
@@ -283,9 +305,6 @@ class ProjectionTrainer:
         self.use_batch_norm = str2bool(config.get("projection_trainer", "USE_BATCH_NORM"))
         self.batch_momentum = float(config.get("projection_trainer", "BATCH_MOMENTUM"))
         self.val_count_in_epoch = int(float(config.get("projection_trainer", "VAL_COUNT_IN_EPOCH")))
-        self.loss_patience = int(float(config.get("projection_trainer", "LOSS_PATIENCE")))
-        self.loss_decrease_count = int(float(config.get("projection_trainer", "LOSS_DECREASE_COUNT")))
-        self.loss_decrease_gamma = float(config.get("projection_trainer", "LOSS_DECREASE_GAMMA"))
         input_folder_path = config.get("projection_trainer", "INPUT_FOLDER_PATH")
         self.coordinates_file_train = os.path.join(input_folder_path, 'split', 'coordinates_train.json')
         self.coordinates_file_test = os.path.join(input_folder_path, 'split', 'coordinates_test.json')
@@ -880,36 +899,13 @@ if __name__ == '__main__':
     parser.add_argument("--driver", help="Indicates driver to run the main code", choices=['wandb', 'manual'],
                         default='manual')
     parser.add_argument("--settings_path", help="Path to the settings file.", default=r"./settings/settings_1.ini")
+    parser.add_argument("--network_size", help="The size of the network.", choices=['xl', 'l', 'm', 'm_pow4', 's', 'xs', 'linear'])
 
     args = parser.parse_args()
     driver_ = args.driver
     config_ = read_settings(args.settings_path)
+    network_size_ = read_settings(args.network_size)
 
-    # for sets in [1, 2, 3, 4, 5]:
-    #     # for dev_mode in ['bbox_dev', 'both_dev', 'no_dev', 'proj_dev']:
-    #     for dev_mode in ['both_dev']:
-    #         input_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/OverheadSimIntenseye/Set0" + str(sets) + "/" + dev_mode
-    #         config_.set("projection_trainer", "INPUT_FOLDER_PATH", input_dir_path)
-    #         # for apply_trains in ["True", "False"]:
-    #         for apply_trains in ["True"]:
-    #             config_.set("projection_trainer", "APPLY_COORD_TRANSFORM", apply_trains)
-    #             out_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/models/OverheadSimIntenseye_mod/Set0" + str(sets) + "/" + dev_mode + "/" + apply_trains + "/m_pow4"
-    #             config_.set("projection_trainer", "MAIN_OUTPUT_FOLDER", out_dir_path)
-    #             proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
-    #             proj_trainer.run_train()
-    #             proj_trainer.run_test()
-
-    # for sets in [1, 2]:
-    #     input_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/datasets/CraneIntenseye/Set0" + str(sets)
-    #     config_.set("projection_trainer", "INPUT_FOLDER_PATH", input_dir_path)
-    #     for apply_trains in ["True", "False"]:
-    #         config_.set("projection_trainer", "APPLY_COORD_TRANSFORM", apply_trains)
-    #         out_dir_path = "/home/poyraz/intenseye/input_outputs/overhead_object_projector/models/OverheadIntenseye_mod/Set0" + str(sets) + "/" + apply_trains + "/m_pow4"
-    #         config_.set("projection_trainer", "MAIN_OUTPUT_FOLDER", out_dir_path)
-    #         proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
-    #         proj_trainer.run_train()
-    #         proj_trainer.run_test()
-
-    proj_trainer = ProjectionTrainer(driver=driver_, config=config_)
+    proj_trainer = ProjectionTrainer(driver=driver_, config=config_, network_size=network_size_)
     proj_trainer.run_train()
     proj_trainer.run_test()
