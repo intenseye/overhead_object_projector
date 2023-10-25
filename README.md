@@ -47,8 +47,8 @@ sh install.sh
 
 ## Dataset
 
-- Download the dataset and stored model from https://drive.google.com/drive/folders/1to-5ND7xZaYojZs1aoahvu6BkLlYxRHP?usp=sharing
-and place under the main repo directory like:
+- Download the dataset from https://drive.google.com/drive/folders/1to-5ND7xZaYojZs1aoahvu6BkLlYxRHP?usp=sharing
+and place them in the main repository directory, as follows:
 
 ```
 [main_repo_folder]
@@ -104,8 +104,8 @@ analyze the effect of these deviations, we generate sets with and without applie
 bounding boxes and the projection points of the objects (i.e., bbox_dev, proj_dev, both_dev, no_dev). 
 
 
-- In addition to the provided one, a new simulation based datasets can be generated using the abilities of this 
-repository. Please see **Data Sample Generation** section for detailed explanations.
+- In addition to the provided dataset, this repository offers the capability to create new simulation-based datasets. 
+For a detailed explanation, refer to the **Data Sample Generation** section.
 
 ### CraneIntenseye
 - The CraneIntenseye dataset consists of two sets, where the inputs are obtained from actual cameras on facilities.The 
@@ -122,16 +122,16 @@ for CraneIntenseye.
 
 #### Usage
 
-- Run the following commands to train and test projection point estimator (OverProjNet). Please see the settings.ini 
+- Run the following command to train and test projection point estimator (OverProjNet). Please see the settings.ini 
 files for the explanation of the projection trainer parameters. Also, please note that parameters swept during the 
 hyperparameter search and parameters varying depending on network size are stored in temp_params files. When 
-network size is selected tuned hyperparameters will be loaded automatically.
+network size is selected, the tuned hyperparameters will be loaded automatically.
 
 ```
 python projection_trainer.py --settings_path /path/to/the/settings.ini/file --network_size [network_size]
 ```
-- projection_trainer.py also trains the OverProjNet model over a specified range of epochs, monitoring both loss and 
-accuracy over training and validation sets.
+- projection_trainer.py is responsible for training the OverProjNet model across a defined number of epochs. It 
+monitors both loss and accuracy on both training and validation sets during the training process.
 - projection_trainer.py stores the best state of OverProjNet model by considering the best validation accuracy and 
 utilize it for testing stages.
 - projection_trainer.py also evaluates the OverProjNet model's accuracy using a test dataset, calculating key metrics 
@@ -156,6 +156,11 @@ sample generation parameters.
 python sample_generator.py --settings_path /path/to/the/settings.ini/file
 ```
 
+i.e.,
+```
+python sample_generator.py --settings_path ./settings/settings_1.ini
+```
+
 - sample_generator.py generates data samples by varying object position, rotation, and applying random deviations 
 depending on the set parameters.
 - sample_generator.py also optionally exports the data samples, including images and coordinates, to an output folder.
@@ -178,11 +183,17 @@ Abilities** section. If it is desired to use only a small portion of the generat
 - Run the following command to split your dataset:
 
 ```
-python helper_scripts/split_dataset.py --data_folder_path /path/to/your/dataset --val_ratio [val_ratio] --test_ratio [test_ratio] --train_ratio [train_ratio]
+python ./helper_scripts/split_simulation_datasets.py --data_folder_path /path/to/your/dataset --val_ratio [val_ratio] --test_ratio [test_ratio] --train_ratio [train_ratio]
 ```
 
-- split_dataset.py will create a new directory named "split" within your dataset folder and organize the data into 
-three JSON files: coordinates_train.json, coordinates_val.json, and coordinates_test.json.
+e.g.,
+```
+python ./helper_scripts/split_simulation_datasets.py --data_folder_path ./datasets/OverheadSimIntenseye/Set01/2023_10_25_08_51_40_329 --val_ratio 0.01 --test_ratio 0.01 --train_ratio 0.004
+```
+
+- split_simulation_datasets.py will create a new directory named "split" within your dataset folders (for each of 
+bbox_dev, proj_dev, both_dev, no_dev) and organize the data into three JSON files: coordinates_train.json, 
+coordinates_val.json, and coordinates_test.json.
 
 ### Delete Unused Simulation Data Script
 
@@ -198,12 +209,17 @@ removing unnecessary files and metadata.
 python helper_scripts/delete_unused_simulation_data.py --data_folder_path /path/to/your/dataset
 ```
 
+e.g.,
+```
+python helper_scripts/delete_unused_simulation_data.py --data_folder_path ./datasets/OverheadSimIntenseye/Set01/2023_10_25_08_51_40_329
+```
+
 - delete_unused_simulation_data.py will scan the specified dataset folder and remove unused images and their 
 associated metadata. It will help you clean your dataset by deleting unnecessary files.
 
-### Time and Throughput Measurement Script
+## Time and Throughput Measurement Script
 
-- The Time and Throughput Measurement Script is used to measure the processing time and throughput of a deep learning 
+- The Time and Throughput Measurement ability is used to measure the processing time and throughput of a deep learning 
 model implemented in PyTorch. This script is particularly useful when you want to assess the performance of a model on 
 different network sizes and batch sizes.
 
@@ -212,7 +228,7 @@ different network sizes and batch sizes.
 - Run the script without any additional arguments. 
 
 ```
-python helper_scripts/measure_time_throughput.py
+python measure_time_throughput.py
 ```
 
 - measure_time_throughput.py perform time and throughput measurements for various network sizes and batch sizes.

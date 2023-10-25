@@ -17,7 +17,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import wandb
 from loss_model_utils.models import OverProjNet, OverProjNetXL, OverProjNetL, OverProjNetM, \
-    OverProjNetS, OverProjNetXS, OverProjNetLinear, ProjectionAxis
+    OverProjNetS, OverProjNetXS, OverProjNetLinear, ProjectionAxis, ActivationType
 from loss_model_utils.utils import str2bool, read_settings, seed_worker
 from loss_model_utils.loss import Criterion_mse_loss, Criterion_nth_power_loss
 from temp_params.temp_params_l import param_sweep as param_sweep_l
@@ -190,7 +190,7 @@ class ProjectionTrainer:
 
         self.test_model_mode = param_sweep['test_model_mode']  # Defines the size of the networks.
         self.batch_size = int(float(param_sweep['batch_size']))  # Defines the batch size
-        self.activation = param_sweep['activation']  # Defines the activation function to be used in hidden layers of networks
+        self.activation = ActivationType(param_sweep['activation'])  # Defines the activation function to be used in hidden layers of networks
         self.loss_function = param_sweep['loss_function_reg']  # Defines the loss function
         self.fixed_partition_seed = str2bool(param_sweep['fixed_partition_seed'])  # Enables fixed seed mode
         self.use_mixed_precision = str2bool(param_sweep['use_mixed_precision'])  # Enables mixed precision operations.
@@ -274,7 +274,7 @@ class ProjectionTrainer:
 
         elif self.logging_tool == 'wandb':
             self.init_model_optimizer_logger(model, optimizer)
-            self.initialize_wandb(time_stamp)
+            self.initialize_wandb(time_stamp, param_sweep)
 
         if self.projection_axis == ProjectionAxis.x:
             self.related_cam_dim = self.image_size[0]
@@ -383,7 +383,7 @@ class ProjectionTrainer:
             )
         return data_ds, data_loader
 
-    def initialize_wandb(self, folder_name: str):
+    def initialize_wandb(self, folder_name: str, param_sweep: Dict[str, Any]):
         """
         Initialize wandb (Weights & Biases) logging
 
@@ -391,6 +391,8 @@ class ProjectionTrainer:
         ----------
         folder_name: str
             sub folder name (timestamp) used in wandb run naming.
+        param_sweep: Dict[str, Any]
+            parameter set to be logged in wandb and used to train the OverProjNet
         """
 
         config_dict = param_sweep
@@ -904,7 +906,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     driver_ = args.driver
     config_ = read_settings(args.settings_path)
-    network_size_ = read_settings(args.network_size)
+    network_size_ = args.network_size
 
     proj_trainer = ProjectionTrainer(driver=driver_, config=config_, network_size=network_size_)
     proj_trainer.run_train()

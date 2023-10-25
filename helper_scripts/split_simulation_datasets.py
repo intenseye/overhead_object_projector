@@ -23,13 +23,11 @@ def split_dataset(main_folder_path: str, validation_ratio: float, test_ratio: fl
     """
 
     split_folder_name = 'split'
-    time_stamp = datetime.utcnow().strftime("%Y_%m_%d_%H_%M_%S_%f")[:-3]
-
     dev_folder_paths = [os.path.join(main_folder_path, name) for name in os.listdir(main_folder_path)
                         if os.path.isdir(os.path.join(main_folder_path, name))]
     already_set_indices = False
     for dev_folder_path in dev_folder_paths:
-        split_folder_path = os.path.join(dev_folder_path, split_folder_name, time_stamp)
+        split_folder_path = os.path.join(dev_folder_path, split_folder_name)
         os.makedirs(split_folder_path, exist_ok=True)
 
         json_file_name = "coordinates.json"
@@ -91,8 +89,7 @@ if __name__ == '__main__':
     test_ratio_ = float(args.test_ratio)
     train_ratio_ = float(args.train_ratio)
 
-    for i in range(100):
-        if train_ratio_ is None:
-            split_dataset(data_folder_path, val_ratio_, test_ratio_)
-        else:
-            split_dataset(data_folder_path, val_ratio_, test_ratio_, train_ratio_)
+    if train_ratio_ is None:
+        split_dataset(data_folder_path, val_ratio_, test_ratio_)
+    else:
+        split_dataset(data_folder_path, val_ratio_, test_ratio_, train_ratio_)
