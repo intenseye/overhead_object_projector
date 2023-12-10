@@ -101,11 +101,11 @@ investigations, along with positional data.
 
 - Bounding box boundaries and projection points are manipulated by adding random deviations within predefined limits. To 
 analyze the effect of these deviations, we generate sets with and without applied deviations to the edges of the 
-bounding boxes and the projection points of the objects (i.e., bbox_dev, proj_dev, both_dev, no_dev). 
-  - bbox_dev: Deviations applied to bounding boxes
-  - proj_dev: Deviations applied to projection points
-  - both_dev: Deviations applied to both bounding boxes and projection points
-  - no_dev: No deviations are applied. 
+bounding boxes and the projection points of the objects (i.e., _bbox_dev_, _proj_dev_, _both_dev_, _no_dev_). 
+  - _bbox_dev_: Deviations applied to bounding boxes
+  - _proj_dev_: Deviations applied to projection points
+  - _both_dev_: Deviations applied to both bounding boxes and projection points
+  - _no_dev_: No deviations are applied. 
 
 
 - In addition to the provided dataset, this repository offers the capability to create new simulation-based datasets. 
@@ -196,7 +196,7 @@ Abilities** section. If it is desired to use only a small portion of the generat
     ```
 
 - _split_simulation_datasets.py_ will create a new directory named "split" within your dataset folders (for each of 
-bbox_dev, proj_dev, both_dev, no_dev) and organize the data into three JSON files: _coordinates_train.json_, 
+_bbox_dev_, _proj_dev_, _both_dev_, _no_dev_) and organize the data into three JSON files: _coordinates_train.json_, 
 _coordinates_val.json_, and _coordinates_test.json_.
 
 ### Delete Unused Simulation Data Script
