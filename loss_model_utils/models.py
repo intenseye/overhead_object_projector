@@ -93,7 +93,7 @@ class OverProjNet(nn.Module):
         Parameters
         ----------
         activation: ActivationType
-            Activation tag
+            Activation type
         use_batch_norm: bool
             Enables batch normalization
         """
@@ -126,7 +126,7 @@ class OverProjNetXL(OverProjNet):
         projection_axis: ProjectionAxis
             The projection axis
         activation: ActivationType
-            Activation tag
+            Activation type
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
@@ -202,7 +202,7 @@ class OverProjNetL(OverProjNet):
         projection_axis: ProjectionAxis
             The projection axis
         activation: ActivationType
-            Activation tag
+            Activation type
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
@@ -274,7 +274,7 @@ class OverProjNetM(OverProjNet):
         projection_axis: ProjectionAxis
             The projection axis
         activation: ActivationType
-            Activation tag
+            Activation type
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
@@ -343,7 +343,7 @@ class OverProjNetS(OverProjNet):
         projection_axis: ProjectionAxis
             The projection axis
         activation: ActivationType
-            Activation tag
+            Activation type
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
@@ -409,7 +409,7 @@ class OverProjNetXS(OverProjNet):
         projection_axis: ProjectionAxis
             The projection axis
         activation: ActivationType
-            Activation tag
+            Activation type
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool
@@ -470,7 +470,7 @@ class OverProjNetLinear(OverProjNet):
         projection_axis: ProjectionAxis
             The projection axis
         activation: ActivationType
-            Activation tag
+            Activation type
         init_w_normal: bool
             Enables the normal distribution based weight initialization
         use_batch_norm: bool

@@ -50,96 +50,100 @@ sh install.sh
 - Download the dataset from https://drive.google.com/drive/folders/1to-5ND7xZaYojZs1aoahvu6BkLlYxRHP?usp=sharing
 and place them in the main repository directory, as follows:
 
-```
-[main_repo_folder]
-   |——————Datasets
-   |        └——————CraneIntenseye
-   |        |         └——————Set01
-   |        |         └——————Set02
-   |        |         └——————ReadMe.txt
-   |        └——————OverheadSimIntenseye
-   |                  └——————Set01
-   |                            └——————bbox_dev
-   |                            └——————both_dev
-   |                            └——————no_dev
-   |                            └——————proj_dev
-   |                  └——————Set02
-   |                            └——————bbox_dev
-   |                            └——————both_dev
-   |                            └——————no_dev
-   |                            └——————proj_dev
-   |                  └——————Set03
-   |                            └——————bbox_dev
-   |                            └——————both_dev
-   |                            └——————no_dev
-   |                            └——————proj_dev
-   |                  └——————Set04
-   |                            └——————bbox_dev
-   |                            └——————both_dev
-   |                            └——————no_dev
-   |                            └——————proj_dev
-   |                  └——————Set05
-   |                            └——————bbox_dev
-   |                            └——————both_dev
-   |                            └——————no_dev
-   |                            └——————proj_dev
-```
+    ```
+    [main_repo_folder]
+       |——————Datasets
+       |        └——————CraneIntenseye
+       |        |         └——————Set01
+       |        |         └——————Set02
+       |        |         └——————ReadMe.txt
+       |        └——————OverheadSimIntenseye
+       |                  └——————Set01
+       |                            └——————bbox_dev
+       |                            └——————both_dev
+       |                            └——————no_dev
+       |                            └——————proj_dev
+       |                  └——————Set02
+       |                            └——————bbox_dev
+       |                            └——————both_dev
+       |                            └——————no_dev
+       |                            └——————proj_dev
+       |                  └——————Set03
+       |                            └——————bbox_dev
+       |                            └——————both_dev
+       |                            └——————no_dev
+       |                            └——————proj_dev
+       |                  └——————Set04
+       |                            └——————bbox_dev
+       |                            └——————both_dev
+       |                            └——————no_dev
+       |                            └——————proj_dev
+       |                  └——————Set05
+       |                            └——————bbox_dev
+       |                            └——————both_dev
+       |                            └——————no_dev
+       |                            └——————proj_dev
+    ```
 
-- While OverheadSimIntenseye dataset is collected from a simulation environment, CraneIntenseye dataset is collected 
+- While _OverheadSimIntenseye_ dataset is collected from a simulation environment, _CraneIntenseye_ dataset is collected 
 from actual facility cameras.
 - Both datasets comprise positional and visual data that indicate the pixel location of overhead objects as inputs and 
 the center projection point of the overhead object as targets. While overhead objects are represented by bounding 
 boxes, the center projection points of the overhead object are denoted by points. 
 
 ### OverheadSimIntenseye
-- The OverheadSimIntenseye comprises five distinct sets, each encompassing different camera placements, camera 
+- The _OverheadSimIntenseye_ comprises five distinct sets, each encompassing different camera placements, camera 
 rotations, and variable sized objects, along with other camera and lens parameters. The parameters and their allowed 
 ranges are presented in Table 1 in [Overhead object projector: OverProjNet](https://www.sciencedirect.com/science/article/pii/S2667305323000947) 
-to generate each set of OverheadSimIntenseye. Simulation images are also provided for visual demonstrations and 
+to generate each set of _OverheadSimIntenseye_. Simulation images are also provided for visual demonstrations and 
 investigations, along with positional data.
 
 
 - Bounding box boundaries and projection points are manipulated by adding random deviations within predefined limits. To 
 analyze the effect of these deviations, we generate sets with and without applied deviations to the edges of the 
 bounding boxes and the projection points of the objects (i.e., bbox_dev, proj_dev, both_dev, no_dev). 
+  - bbox_dev: Deviations applied to bounding boxes
+  - proj_dev: Deviations applied to projection points
+  - both_dev: Deviations applied to both bounding boxes and projection points
+  - no_dev: No deviations are applied. 
 
 
 - In addition to the provided dataset, this repository offers the capability to create new simulation-based datasets. 
 For a detailed explanation, refer to the **Data Sample Generation** section.
 
 ### CraneIntenseye
-- The CraneIntenseye dataset consists of two sets, where the inputs are obtained from actual cameras on facilities.The 
+- The _CraneIntenseye_ dataset consists of two sets, where the inputs are obtained from actual cameras on facilities.The 
 images are captured from fixed-position cameras while the cranes are in operation. The cameras used for data 
 collection have different lens properties, viewpoints, and rotational angles, and different overhead objects (cranes)
-are used during the collection of the CraneIntenseye dataset.
+are used during the collection of the _CraneIntenseye_ dataset.
 
 
-- Since most of the parameters used to generate the sets of OverheadSimIntenseye are unknown for CraneIntenseye, only 
+- Since most of the parameters used to generate the sets of _OverheadSimIntenseye_ are unknown for _CraneIntenseye_, only 
 the available ones are presented in Table 2 in [Overhead object projector: OverProjNet](https://www.sciencedirect.com/science/article/pii/S2667305323000947) 
-for CraneIntenseye.
+for _CraneIntenseye_.
 
 ## Projection Trainer and Tester
 
 #### Usage
 
-- Run the following command to train and test projection point estimator (OverProjNet). Please see the settings.ini 
+- Run the following command to train and test projection point estimator (OverProjNet). Please see the _settings.ini_ 
 files for the explanation of the projection trainer parameters. Also, please note that parameters swept during the 
-hyperparameter search and parameters varying depending on network size are stored in temp_params files. When 
+hyperparameter search and parameters varying depending on network size are stored in _temp_params_ files. When 
 network size is selected, the tuned hyperparameters will be loaded automatically.
 
-```
-python projection_trainer.py --settings_path /path/to/the/settings.ini/file --network_size [network_size]
-```
-- projection_trainer.py is responsible for training the OverProjNet model across a defined number of epochs. It 
+    ```
+    python projection_trainer.py --settings_path /path/to/the/settings.ini/file --network_size [network_size]
+    ```
+- _projection_trainer.py_ is responsible for training the OverProjNet model across a defined number of epochs. It 
 monitors both loss and accuracy on both training and validation sets during the training process.
-- projection_trainer.py stores the best state of OverProjNet model by considering the best validation accuracy and 
+- _projection_trainer.py_ stores the best state of OverProjNet model by considering the best validation accuracy and 
 utilize it for testing stages.
-- projection_trainer.py also evaluates the OverProjNet model's accuracy using a test dataset, calculating key metrics 
+- _projection_trainer.py_ also evaluates the OverProjNet model's accuracy using a test dataset, calculating key metrics 
 like loss, accuracy, and error.
-- If the distance map in metric space is generated, the sample_generator.py assesses accuracy and errors in metric 
+- If the distance map in metric space is generated, the _sample_generator.py_ assesses accuracy and errors in metric 
 distance space in addition to pixel space.
-- projection_trainer.py also displays images and object positions when drawing or demo modes are enabled via 
-settings.ini file.
+- _projection_trainer.py_ also displays images and object positions when drawing or demo modes are enabled via 
+_settings.ini_ file.
 
 ## Data Sample Generation
 - Data sample generation ability is used to generate data samples that include the position of an overhead object and 
@@ -152,19 +156,19 @@ transformation, and adding random deviations to the data.
 - Run the following commands to generate simulation samples. Please see the settings file for the explanation of the 
 sample generation parameters.
 
-```
-python sample_generator.py --settings_path /path/to/the/settings.ini/file
-```
+    ```
+    python sample_generator.py --settings_path /path/to/the/settings.ini/file
+    ```
 
-i.e.,
-```
-python sample_generator.py --settings_path ./settings/settings_1.ini
-```
+    i.e.,
+    ```
+    python sample_generator.py --settings_path ./settings/settings_1.ini
+    ```
 
-- sample_generator.py generates data samples by varying object position, rotation, and applying random deviations 
+- _sample_generator.py_ generates data samples by varying object position, rotation, and applying random deviations 
 depending on the set parameters.
-- sample_generator.py also optionally exports the data samples, including images and coordinates, to an output folder.
-- sample_generator.py also displays images and object positions when drawing or demo modes are enabled.
+- _sample_generator.py_ also optionally exports the data samples, including images and coordinates, to an output folder.
+- _sample_generator.py_ also displays images and object positions when drawing or demo modes are enabled.
 
 
 - After generating the samples, to work with the current functionalities of this repository, it is advice to split the 
@@ -182,18 +186,18 @@ Abilities** section. If it is desired to use only a small portion of the generat
 
 - Run the following command to split your dataset:
 
-```
-python ./helper_scripts/split_simulation_datasets.py --data_folder_path /path/to/your/dataset --val_ratio [val_ratio] --test_ratio [test_ratio] --train_ratio [train_ratio]
-```
+    ```
+    python ./helper_scripts/split_simulation_datasets.py --data_folder_path /path/to/your/dataset --val_ratio [val_ratio] --test_ratio [test_ratio] --train_ratio [train_ratio]
+    ```
+    
+    e.g.,
+    ```
+    python ./helper_scripts/split_simulation_datasets.py --data_folder_path ./datasets/OverheadSimIntenseye/Set01/2023_10_25_08_51_40_329 --val_ratio 0.01 --test_ratio 0.01 --train_ratio 0.004
+    ```
 
-e.g.,
-```
-python ./helper_scripts/split_simulation_datasets.py --data_folder_path ./datasets/OverheadSimIntenseye/Set01/2023_10_25_08_51_40_329 --val_ratio 0.01 --test_ratio 0.01 --train_ratio 0.004
-```
-
-- split_simulation_datasets.py will create a new directory named "split" within your dataset folders (for each of 
-bbox_dev, proj_dev, both_dev, no_dev) and organize the data into three JSON files: coordinates_train.json, 
-coordinates_val.json, and coordinates_test.json.
+- _split_simulation_datasets.py_ will create a new directory named "split" within your dataset folders (for each of 
+bbox_dev, proj_dev, both_dev, no_dev) and organize the data into three JSON files: _coordinates_train.json_, 
+_coordinates_val.json_, and _coordinates_test.json_.
 
 ### Delete Unused Simulation Data Script
 
@@ -205,16 +209,16 @@ removing unnecessary files and metadata.
 
 - Run the following command to delete unused simulation data:
 
-```
-python helper_scripts/delete_unused_simulation_data.py --data_folder_path /path/to/your/dataset
-```
+    ```
+    python helper_scripts/delete_unused_simulation_data.py --data_folder_path /path/to/your/dataset
+    ```
+    
+    e.g.,
+    ```
+    python helper_scripts/delete_unused_simulation_data.py --data_folder_path ./datasets/OverheadSimIntenseye/Set01/2023_10_25_08_51_40_329
+    ```
 
-e.g.,
-```
-python helper_scripts/delete_unused_simulation_data.py --data_folder_path ./datasets/OverheadSimIntenseye/Set01/2023_10_25_08_51_40_329
-```
-
-- delete_unused_simulation_data.py will scan the specified dataset folder and remove unused images and their 
+- _delete_unused_simulation_data.py_ will scan the specified dataset folder and remove unused images and their 
 associated metadata. It will help you clean your dataset by deleting unnecessary files.
 
 ## Time and Throughput Measurement Script
@@ -227,15 +231,12 @@ different network sizes and batch sizes.
 
 - Run the script without any additional arguments. 
 
-```
-python measure_time_throughput.py
-```
+    ```
+    python measure_time_throughput.py
+    ```
 
-- measure_time_throughput.py perform time and throughput measurements for various network sizes and batch sizes.
+- _measure_time_throughput.py_ perform time and throughput measurements for various network sizes and batch sizes.
 
-
-Note: The W&B sweeper produces configurations by considering the ranges and distributions of the hyperparameters and 
-prints them to temp_params.py before the training with the decided configuration.
 
 
 
